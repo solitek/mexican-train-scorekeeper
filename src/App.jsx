@@ -1,0 +1,1016 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line,
+} from "recharts";
+import {
+  Plus, Trash2, Trophy, X, Check, ChevronLeft, MoreVertical,
+  Wine, Users, BarChart3, Archive, ArchiveRestore, Pencil, Skull
+} from "lucide-react";
+import { supabase } from "./supabaseClient";
+
+// ---------- Supabase row <-> app-shape conversion ----------
+function rowToPlayer(row) {
+  return { id: row.id, name: row.name, archived: row.archived, createdAt: row.created_at };
+}
+function rowToGame(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    playerIds: row.player_ids,
+    rounds: row.rounds,
+    drinkingMode: row.drinking_mode,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+  };
+}
+function gameToRow(game, status) {
+  return {
+    id: game.id,
+    title: game.title,
+    player_ids: game.playerIds,
+    rounds: game.rounds,
+    drinking_mode: game.drinkingMode,
+    status,
+    started_at: game.startedAt,
+    finished_at: game.finishedAt || null,
+  };
+}
+
+const PALETTE = {
+  rail: "#1B2A3D",
+  railDeep: "#121D2B",
+  cream: "#F2EFE6",
+  brass: "#C08A3E",
+  brassLight: "#D9A94F",
+  slate: "#5C7089",
+  red: "#B3524F",
+  green: "#4C8F6E",
+};
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function formatDateTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+    " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+// Who drinks this round: lowest score, highest score, and middle (median) score(s).
+function getDrinkFlags(scores) {
+  const n = scores.length;
+  const nums = scores.map((s) => Number(s) || 0);
+  const empty = nums.map(() => ({ low: false, high: false, middle: false }));
+  if (n < 2) return empty;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const lowValue = sorted[0];
+  const highValue = sorted[n - 1];
+  let middleValues = [];
+  if (n >= 3) {
+    if (n % 2 === 1) middleValues = [sorted[Math.floor(n / 2)]];
+    else middleValues = [sorted[n / 2 - 1], sorted[n / 2]];
+  }
+  return nums.map((v) => ({
+    low: v === lowValue,
+    high: v === highValue,
+    middle: middleValues.includes(v) && v !== lowValue && v !== highValue,
+  }));
+}
+
+// Computes full results for one finished (or in-progress) game.
+function computeGameStats(game) {
+  const { playerIds, rounds } = game;
+  const n = playerIds.length;
+  const totals = playerIds.map((_, i) => rounds.reduce((s, r) => s + (Number(r[i]) || 0), 0));
+  const roundWins = playerIds.map(() => 0);
+  const drinkCounts = playerIds.map(() => 0);
+  rounds.forEach((round) => {
+    const flags = getDrinkFlags(round);
+    flags.forEach((f, i) => {
+      if (f.low) roundWins[i] += 1;
+      if (f.low || f.middle || f.high) drinkCounts[i] += 1;
+    });
+  });
+  const minTotal = totals.length ? Math.min(...totals) : null;
+  const maxTotal = totals.length ? Math.max(...totals) : null;
+  const winnerIdx = totals.map((t, i) => (t === minTotal ? i : -1)).filter((i) => i >= 0);
+  const loserIdx = totals.map((t, i) => (t === maxTotal ? i : -1)).filter((i) => i >= 0);
+  const maxRoundWins = roundWins.length ? Math.max(...roundWins) : 0;
+  const minRoundWins = roundWins.length ? Math.min(...roundWins) : 0;
+  const maxDrinks = drinkCounts.length ? Math.max(...drinkCounts) : 0;
+  const minDrinks = drinkCounts.length ? Math.min(...drinkCounts) : 0;
+  const mostRoundsWonIdx = roundWins.map((v, i) => (v === maxRoundWins ? i : -1)).filter((i) => i >= 0);
+  const leastRoundsWonIdx = roundWins.map((v, i) => (v === minRoundWins ? i : -1)).filter((i) => i >= 0);
+  const mostDrinksIdx = drinkCounts.map((v, i) => (v === maxDrinks ? i : -1)).filter((i) => i >= 0);
+  const leastDrinksIdx = drinkCounts.map((v, i) => (v === minDrinks ? i : -1)).filter((i) => i >= 0);
+  return {
+    totals, roundWins, drinkCounts, minTotal, maxTotal,
+    winnerIdx, loserIdx, mostRoundsWonIdx, leastRoundsWonIdx, mostDrinksIdx, leastDrinksIdx,
+    maxRoundWins, minRoundWins, maxDrinks, minDrinks,
+  };
+}
+
+// Buckets finished games by month for the "games played over time" trend.
+function monthlyGameCounts(games) {
+  const map = {};
+  games.forEach((g) => {
+    const d = new Date(g.finishedAt || g.startedAt);
+    const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    const label = d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+    if (!map[key]) map[key] = { key, label, count: 0 };
+    map[key].count += 1;
+  });
+  return Object.values(map).sort((a, b) => (a.key > b.key ? 1 : -1));
+}
+
+function DominoMark({ size = 26 }) {
+  return (
+    <svg width={size} height={size * 1.9} viewBox="0 0 40 76" fill="none">
+      <rect x="1" y="1" width="38" height="74" rx="6" fill={PALETTE.cream} stroke={PALETTE.brass} strokeWidth="2" />
+      <line x1="4" y1="38" x2="36" y2="38" stroke={PALETTE.brass} strokeWidth="2" />
+      {[12, 20, 28].map((cy) => (
+        <React.Fragment key={cy}>
+          <circle cx="12" cy={cy - 20} r="2.6" fill={PALETTE.railDeep} />
+          <circle cx="28" cy={cy - 20} r="2.6" fill={PALETTE.railDeep} />
+          <circle cx="12" cy={cy + 20} r="2.6" fill={PALETTE.railDeep} />
+          <circle cx="28" cy={cy + 20} r="2.6" fill={PALETTE.railDeep} />
+        </React.Fragment>
+      ))}
+    </svg>
+  );
+}
+
+const btnPrimary = {
+  background: PALETTE.brass,
+  border: "none",
+  borderRadius: 10,
+  padding: "14px",
+  color: PALETTE.railDeep,
+  fontSize: 15,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "'Helvetica Neue', Arial, sans-serif",
+};
+const btnSecondary = {
+  background: "none",
+  border: `1px solid rgba(242,239,230,0.25)`,
+  color: PALETTE.cream,
+  borderRadius: 10,
+  padding: "12px",
+  fontSize: 14,
+  cursor: "pointer",
+  fontFamily: "'Helvetica Neue', Arial, sans-serif",
+};
+
+export default function MexicanTrainFamilyApp() {
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState("home"); // home | pick | manage | game | recap | dashboard | player
+  const [players, setPlayers] = useState([]); // {id,name,archived,createdAt}
+  const [games, setGames] = useState([]); // finished games
+  const [activeGame, setActiveGame] = useState(null); // in-progress game
+  const [recapGameId, setRecapGameId] = useState(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState(null);
+
+  const [pickSelection, setPickSelection] = useState([]);
+  const [newPlayerName, setNewPlayerName] = useState("");
+  const [manageNewName, setManageNewName] = useState("");
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
+
+  const saveTimers = useRef({});
+  const inputRefs = useRef({});
+
+  useEffect(() => {
+    (async () => {
+      let loadedPlayers = [];
+      let loadedGames = [];
+      let loadedActive = null;
+
+      try {
+        const { data, error } = await supabase.from("players").select("*").order("created_at", { ascending: true });
+        if (!error && data) loadedPlayers = data.map(rowToPlayer);
+      } catch (e) {}
+
+      try {
+        const { data, error } = await supabase.from("games").select("*").eq("status", "finished").order("finished_at", { ascending: true });
+        if (!error && data) loadedGames = data.map(rowToGame);
+      } catch (e) {}
+
+      try {
+        const { data, error } = await supabase.from("games").select("*").eq("status", "active").order("started_at", { ascending: false }).limit(1);
+        if (!error && data && data.length > 0) loadedActive = rowToGame(data[0]);
+      } catch (e) {}
+
+      // One-time import of "Roz's Birthday / July 4th" from a photographed scoresheet.
+      const alreadyImported = loadedGames.some((g) => g.title === "Roz's Birthday / July 4th" && g.playerIds.length === 8);
+      if (!alreadyImported) {
+        const names = ["Brandon", "Jay", "Joel", "Kyra", "Maribeth", "Michelle", "Roz", "Ruth"];
+        const rounds = [
+          [24, 14, 44, 26, 28, 0, 18, 37],
+          [16, 0, 51, 45, 37, 51, 31, 35],
+          [14, 0, 22, 36, 10, 30, 17, 16],
+          [64, 31, 59, 20, 41, 0, 56, 21],
+          [0, 36, 42, 84, 52, 45, 7, 63],
+          [112, 5, 41, 39, 65, 0, 32, 44],
+          [7, 58, 22, 11, 0, 8, 15, 30],
+          [24, 59, 76, 131, 73, 0, 47, 96],
+          [10, 54, 96, 99, 51, 135, 86, 0],
+          [0, 106, 22, 11, 64, 46, 50, 75],
+          [0, 116, 30, 132, 36, 47, 53, 15],
+          [44, 41, 36, 24, 13, 0, 61, 22],
+          [90, 53, 0, 105, 66, 103, 70, 110],
+        ];
+        const newPlayers = [];
+        const playerIds = names.map((name) => {
+          const existing = loadedPlayers.find((pl) => pl.name.toLowerCase() === name.toLowerCase());
+          if (existing) return existing.id;
+          const newP = { id: uid(), name, archived: false, createdAt: Date.now() };
+          newPlayers.push(newP);
+          return newP.id;
+        });
+        if (newPlayers.length > 0) {
+          loadedPlayers = [...loadedPlayers, ...newPlayers];
+          try {
+            await supabase.from("players").insert(
+              newPlayers.map((p) => ({ id: p.id, name: p.name, archived: p.archived, created_at: p.createdAt }))
+            );
+          } catch (e) {}
+        }
+        const startedAt = new Date(2026, 6, 4, 19, 0, 0).getTime();
+        const finishedAt = new Date(2026, 6, 4, 23, 30, 0).getTime();
+        const seededGame = { id: uid(), title: "Roz's Birthday / July 4th", playerIds, rounds, drinkingMode: true, startedAt, finishedAt };
+        loadedGames = [...loadedGames, seededGame];
+        try { await supabase.from("games").insert(gameToRow(seededGame, "finished")); } catch (e) {}
+      }
+
+      setPlayers(loadedPlayers);
+      setGames(loadedGames);
+      setActiveGame(loadedActive);
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Debounced upsert of the active (in-progress) game row — used while scoring,
+  // where rounds/title/drinking-mode change frequently and we don't want a
+  // network call on every keystroke.
+  function debouncedSaveActiveGame(game) {
+    if (saveTimers.current.active) clearTimeout(saveTimers.current.active);
+    saveTimers.current.active = setTimeout(async () => {
+      try {
+        if (game) await supabase.from("games").upsert(gameToRow(game, "active"));
+      } catch (e) {}
+    }, 350);
+  }
+  useEffect(() => { if (loaded && activeGame) debouncedSaveActiveGame(activeGame); }, [activeGame, loaded]);
+
+  function getPlayerName(id) {
+    const p = players.find((pl) => pl.id === id);
+    return p ? p.name : "Unknown";
+  }
+
+  // ---------- Player roster actions ----------
+  function addPlayer(name, autoSelect) {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const p = { id: uid(), name: trimmed, archived: false, createdAt: Date.now() };
+    setPlayers((prev) => [...prev, p]);
+    if (autoSelect) setPickSelection((prev) => [...prev, p.id]);
+    supabase.from("players").insert({ id: p.id, name: p.name, archived: p.archived, created_at: p.createdAt }).then(({ error }) => { if (error) console.error(error); });
+    return p.id;
+  }
+  function toggleArchive(id) {
+    let nextVal = false;
+    setPlayers((prev) => prev.map((p) => {
+      if (p.id !== id) return p;
+      nextVal = !p.archived;
+      return { ...p, archived: nextVal };
+    }));
+    supabase.from("players").update({ archived: nextVal }).eq("id", id).then(({ error }) => { if (error) console.error(error); });
+  }
+  function renamePlayer(id, name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, name: trimmed } : p)));
+    supabase.from("players").update({ name: trimmed }).eq("id", id).then(({ error }) => { if (error) console.error(error); });
+  }
+
+  // ---------- Game lifecycle ----------
+  function startGame() {
+    if (pickSelection.length < 2) return;
+    const g = {
+      id: uid(),
+      title: formatDateTime(Date.now()),
+      playerIds: pickSelection,
+      rounds: [],
+      drinkingMode: false,
+      startedAt: Date.now(),
+      finishedAt: null,
+    };
+    setActiveGame(g);
+    setView("game");
+  }
+  function addRound() {
+    setActiveGame((prev) => ({ ...prev, rounds: [...prev.rounds, prev.playerIds.map(() => 0)] }));
+  }
+  function updateScore(roundIdx, playerIdx, val) {
+    setActiveGame((prev) => {
+      const rounds = prev.rounds.map((r) => [...r]);
+      rounds[roundIdx][playerIdx] = val === "" ? "" : Number(val);
+      return { ...prev, rounds };
+    });
+  }
+  function deleteRound(roundIdx) {
+    setActiveGame((prev) => ({ ...prev, rounds: prev.rounds.filter((_, i) => i !== roundIdx) }));
+  }
+  function toggleDrinkingMode() {
+    setActiveGame((prev) => ({ ...prev, drinkingMode: !prev.drinkingMode }));
+  }
+  function saveTitle() {
+    const trimmed = titleDraft.trim();
+    setActiveGame((prev) => ({ ...prev, title: trimmed || prev.title }));
+    setEditingTitle(false);
+  }
+  function finishGame() {
+    if (saveTimers.current.active) clearTimeout(saveTimers.current.active);
+    const finished = { ...activeGame, finishedAt: Date.now() };
+    setGames((prev) => [...prev, finished]);
+    setRecapGameId(finished.id);
+    setActiveGame(null);
+    setConfirmAction(null);
+    setView("recap");
+    supabase.from("games").upsert(gameToRow(finished, "finished")).then(({ error }) => { if (error) console.error(error); });
+  }
+  function abandonGame() {
+    if (saveTimers.current.active) clearTimeout(saveTimers.current.active);
+    const idToDelete = activeGame?.id;
+    setActiveGame(null);
+    setConfirmAction(null);
+    setView("home");
+    if (idToDelete) supabase.from("games").delete().eq("id", idToDelete).then(({ error }) => { if (error) console.error(error); });
+  }
+
+  // ---------- Score cell keyboard nav ----------
+  function focusCell(r, p) {
+    const ref = inputRefs.current[`${r}-${p}`];
+    if (ref) { ref.focus(); ref.select(); }
+  }
+  function handleCellKeyDown(e, r, p) {
+    const nPlayers = activeGame.playerIds.length;
+    if (e.key === "Enter" || e.key === "ArrowRight") {
+      e.preventDefault();
+      if (p + 1 < nPlayers) focusCell(r, p + 1);
+      else if (r + 1 < activeGame.rounds.length) focusCell(r + 1, 0);
+      else { addRound(); setTimeout(() => focusCell(r + 1, 0), 0); }
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      if (p - 1 >= 0) focusCell(r, p - 1);
+      else if (r - 1 >= 0) focusCell(r - 1, nPlayers - 1);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (r + 1 < activeGame.rounds.length) focusCell(r + 1, p);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (r - 1 >= 0) focusCell(r - 1, p);
+    }
+  }
+
+  // ---------- Dashboard aggregation ----------
+  function computeDashboard() {
+    const stats = {};
+    players.forEach((p) => {
+      stats[p.id] = { id: p.id, name: p.name, archived: p.archived, gamesPlayed: 0, gameWins: 0, gameLosses: 0, roundWins: 0, totalDrinks: 0, drinkingGamesPlayed: 0 };
+    });
+    games.forEach((g) => {
+      const gs = computeGameStats(g);
+      g.playerIds.forEach((pid, i) => {
+        if (!stats[pid]) return;
+        stats[pid].gamesPlayed += 1;
+        stats[pid].roundWins += gs.roundWins[i];
+        if (g.drinkingMode) {
+          stats[pid].totalDrinks += gs.drinkCounts[i];
+          stats[pid].drinkingGamesPlayed += 1;
+        }
+        if (gs.winnerIdx.includes(i)) stats[pid].gameWins += 1;
+        if (gs.loserIdx.includes(i)) stats[pid].gameLosses += 1;
+      });
+    });
+    return Object.values(stats);
+  }
+
+  if (!loaded) return <div style={{ minHeight: "100vh", background: PALETTE.rail }} />;
+
+  const pageStyle = {
+    minHeight: "100vh",
+    background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`,
+    fontFamily: "'Helvetica Neue', Arial, sans-serif",
+    color: PALETTE.cream,
+    padding: "24px 20px 40px",
+  };
+
+  function BackHeader({ title, onBack, right }) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={onBack} style={{ background: "none", border: "none", color: PALETTE.cream, cursor: "pointer", padding: 4 }}>
+            <ChevronLeft size={22} />
+          </button>
+          <h1 style={{ fontSize: 20, margin: 0, fontWeight: 700 }}>{title}</h1>
+        </div>
+        {right}
+      </div>
+    );
+  }
+
+  // ---------- HOME ----------
+  if (view === "home") {
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
+            <DominoMark size={30} />
+            <div>
+              <div style={{ fontSize: 11, letterSpacing: "3px", color: PALETTE.brassLight, textTransform: "uppercase" }}>All Aboard</div>
+              <h1 style={{ fontSize: 28, margin: 0, fontWeight: 700 }}>Mexican Train</h1>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {activeGame && (
+              <button onClick={() => setView("game")} style={{ ...btnPrimary, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
+                Resume Game: {activeGame.title}
+              </button>
+            )}
+            <button
+              onClick={() => { setPickSelection([]); setView("pick"); }}
+              style={activeGame ? btnSecondary : { ...btnPrimary, display: "flex", justifyContent: "center" }}
+            >
+              + Start New Game
+            </button>
+            <button onClick={() => setView("dashboard")} style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <BarChart3 size={16} /> Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- PLAYER PICKER ----------
+  if (view === "pick") {
+    const active = players.filter((p) => !p.archived);
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <BackHeader title="Who's playing?" onBack={() => setView("home")} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {active.map((p) => {
+              const selected = pickSelection.includes(p.id);
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => setPickSelection((prev) => selected ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: 999,
+                    border: `1px solid ${selected ? PALETTE.brass : "rgba(242,239,230,0.25)"}`,
+                    background: selected ? "rgba(192,138,62,0.2)" : "rgba(242,239,230,0.05)",
+                    color: selected ? PALETTE.brassLight : PALETTE.cream,
+                    fontSize: 14,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  {selected && <Check size={13} />} {p.name}
+                </button>
+              );
+            })}
+            {active.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14 }}>No players yet — add one below.</div>}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input
+              value={newPlayerName}
+              onChange={(e) => setNewPlayerName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { addPlayer(newPlayerName, true); setNewPlayerName(""); } }}
+              placeholder="Add a new player"
+              style={{ flex: 1, background: "rgba(242,239,230,0.06)", border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, padding: "10px 12px", color: PALETTE.cream, fontSize: 14 }}
+            />
+            <button
+              onClick={() => { addPlayer(newPlayerName, true); setNewPlayerName(""); }}
+              style={{ ...btnSecondary, padding: "0 16px" }}
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+
+          <button onClick={() => setView("manage")} style={{ background: "none", border: "none", color: PALETTE.slate, fontSize: 13, textDecoration: "underline", cursor: "pointer", marginBottom: 20, display: "block" }}>
+            Manage players
+          </button>
+
+          <button onClick={startGame} disabled={pickSelection.length < 2} style={{ ...btnPrimary, width: "100%", opacity: pickSelection.length < 2 ? 0.5 : 1 }}>
+            Start Game ({pickSelection.length} players)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- MANAGE PLAYERS ----------
+  if (view === "manage") {
+    const active = players.filter((p) => !p.archived);
+    const archived = players.filter((p) => p.archived);
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <BackHeader title="Manage Players" onBack={() => setView("pick")} />
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+            <input
+              value={manageNewName}
+              onChange={(e) => setManageNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { addPlayer(manageNewName, false); setManageNewName(""); } }}
+              placeholder="Add a new player"
+              style={{ flex: 1, background: "rgba(242,239,230,0.06)", border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, padding: "10px 12px", color: PALETTE.cream, fontSize: 14 }}
+            />
+            <button onClick={() => { addPlayer(manageNewName, false); setManageNewName(""); }} style={{ ...btnSecondary, padding: "0 16px" }}>
+              <Plus size={16} />
+            </button>
+          </div>
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Active</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {active.map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(242,239,230,0.05)", borderRadius: 8, padding: "10px 12px" }}>
+                {renamingId === p.id ? (
+                  <input
+                    value={renameValue}
+                    autoFocus
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => { renamePlayer(p.id, renameValue); setRenamingId(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { renamePlayer(p.id, renameValue); setRenamingId(null); } }}
+                    style={{ flex: 1, background: "rgba(242,239,230,0.1)", border: `1px solid ${PALETTE.brass}`, borderRadius: 6, padding: "4px 8px", color: PALETTE.cream, fontSize: 14 }}
+                  />
+                ) : (
+                  <div style={{ flex: 1, fontSize: 14 }}>{p.name}</div>
+                )}
+                <button onClick={() => { setRenamingId(p.id); setRenameValue(p.name); }} style={{ background: "none", border: "none", color: PALETTE.slate, cursor: "pointer" }}>
+                  <Pencil size={14} />
+                </button>
+                <button onClick={() => toggleArchive(p.id)} style={{ background: "none", border: "none", color: PALETTE.slate, cursor: "pointer" }}>
+                  <Archive size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {archived.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Archived</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {archived.map((p) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(242,239,230,0.03)", borderRadius: 8, padding: "10px 12px", opacity: 0.6 }}>
+                    <div style={{ flex: 1, fontSize: 14 }}>{p.name}</div>
+                    <button onClick={() => toggleArchive(p.id)} style={{ background: "none", border: "none", color: PALETTE.brassLight, cursor: "pointer" }}>
+                      <ArchiveRestore size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- GAME ----------
+  if (view === "game" && activeGame) {
+    const totals = activeGame.playerIds.map((_, i) => activeGame.rounds.reduce((s, r) => s + (Number(r[i]) || 0), 0));
+    const minTotal = totals.length ? Math.min(...totals) : null;
+    const drinkCounts = activeGame.playerIds.map(() => 0);
+    activeGame.rounds.forEach((round) => {
+      getDrinkFlags(round).forEach((f, i) => { if (f.low || f.middle || f.high) drinkCounts[i] += 1; });
+    });
+
+    return (
+      <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`, fontFamily: "'Helvetica Neue', Arial, sans-serif", color: PALETTE.cream, paddingBottom: 100 }}>
+        {/* Compact header */}
+        <div style={{ padding: "20px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+            <DominoMark size={22} />
+            {editingTitle ? (
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={saveTitle}
+                onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); }}
+                style={{ background: "rgba(242,239,230,0.1)", border: `1px solid ${PALETTE.brass}`, borderRadius: 6, padding: "4px 8px", color: PALETTE.cream, fontSize: 14, flex: 1, minWidth: 0 }}
+              />
+            ) : (
+              <div
+                onClick={() => { setEditingTitle(true); setTitleDraft(activeGame.title); }}
+                style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer" }}
+              >
+                {activeGame.title}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <button
+              onClick={toggleDrinkingMode}
+              aria-pressed={activeGame.drinkingMode}
+              style={{ background: activeGame.drinkingMode ? "rgba(192,138,62,0.25)" : "none", border: `1px solid ${activeGame.drinkingMode ? PALETTE.brass : "rgba(242,239,230,0.2)"}`, borderRadius: 8, padding: 8, color: activeGame.drinkingMode ? PALETTE.brassLight : PALETTE.cream, cursor: "pointer", display: "flex" }}
+            >
+              <Wine size={16} />
+            </button>
+            <button onClick={() => setSheetOpen(true)} style={{ background: "none", border: "none", color: PALETTE.cream, cursor: "pointer", padding: 8 }}>
+              <MoreVertical size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Standings, ranked lowest to highest */}
+        <div style={{ padding: "16px 20px", display: "flex", gap: 10, overflowX: "auto" }}>
+          {activeGame.playerIds
+            .map((pid, i) => ({ pid, i, total: totals[i], name: getPlayerName(pid) }))
+            .sort((a, b) => a.total - b.total)
+            .map((p, rank) => {
+              const isLeader = totals.length > 0 && p.total === minTotal && activeGame.rounds.length > 0;
+              return (
+                <div key={p.pid} style={{ minWidth: 92, background: isLeader ? "rgba(192,138,62,0.15)" : "rgba(242,239,230,0.05)", border: `1px solid ${isLeader ? PALETTE.brass : "rgba(242,239,230,0.12)"}`, borderRadius: 10, padding: "10px 12px", flexShrink: 0, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 6, right: 8, fontSize: 10, color: PALETTE.slate, fontWeight: 600 }}>#{rank + 1}</div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingRight: 14 }}>
+                    {isLeader && <Trophy size={11} color={PALETTE.brassLight} />} {p.name}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{p.total}</div>
+                  {activeGame.drinkingMode && (
+                    <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 3 }}>
+                      {drinkCounts[p.i] === 0 ? (
+                        <span style={{ fontSize: 10, color: PALETTE.slate }}>—</span>
+                      ) : drinkCounts[p.i] <= 12 ? (
+                        Array.from({ length: drinkCounts[p.i] }).map((_, d) => (
+                          <span key={d} style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.red, display: "inline-block" }} />
+                        ))
+                      ) : (
+                        <>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.red, display: "inline-block" }} />
+                          <span style={{ fontSize: 10, color: PALETTE.red, fontWeight: 700 }}>&times;{drinkCounts[p.i]}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+
+        {/* Score table */}
+        <div style={{ padding: "0 20px" }}>
+          {activeGame.rounds.length === 0 ? (
+            <div style={{ textAlign: "center", color: PALETTE.slate, padding: "40px 20px", border: `1px dashed rgba(242,239,230,0.15)`, borderRadius: 12, fontSize: 14 }}>
+              No rounds yet. Add a round after each hand and enter each player's leftover pip count.
+            </div>
+          ) : (
+            <div style={{ overflow: "auto", maxHeight: "min(52vh, 460px)", border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", top: 0, left: 0, background: PALETTE.rail, zIndex: 3 }}>Round</th>
+                    {activeGame.playerIds.map((pid, i) => (
+                      <th key={pid} style={{ textAlign: "center", padding: "6px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, minWidth: 78, position: "sticky", top: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `0 1px 0 rgba(242,239,230,0.15)` }}>
+                        {getPlayerName(pid)}
+                      </th>
+                    ))}
+                    <th style={{ width: 30, position: "sticky", top: 0, background: PALETTE.rail, zIndex: 2 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeGame.rounds.map((round, rIdx) => {
+                    const roundFlags = activeGame.drinkingMode ? getDrinkFlags(round) : null;
+                    return (
+                      <tr key={rIdx}>
+                        <td style={{ padding: "6px 4px", fontSize: 13, color: PALETTE.slate }}>{rIdx + 1}</td>
+                        {round.map((score, pIdx) => {
+                          const flags = roundFlags ? roundFlags[pIdx] : null;
+                          const tagColor = flags?.low ? PALETTE.green : flags?.high ? PALETTE.red : flags?.middle ? PALETTE.brass : null;
+                          const tagLabel = flags?.low ? "L" : flags?.high ? "H" : flags?.middle ? "M" : null;
+                          return (
+                            <td key={pIdx} style={{ padding: "4px", position: "relative" }}>
+                              {tagColor && <div style={{ position: "absolute", top: -1, right: 6, fontSize: 9, fontWeight: 700, color: tagColor, zIndex: 1 }}>{tagLabel}</div>}
+                              <input
+                                ref={(el) => { inputRefs.current[`${rIdx}-${pIdx}`] = el; }}
+                                type="number"
+                                inputMode="numeric"
+                                enterKeyHint="next"
+                                value={score === 0 ? 0 : score}
+                                onChange={(e) => updateScore(rIdx, pIdx, e.target.value)}
+                                onFocus={(e) => e.target.select()}
+                                onKeyDown={(e) => handleCellKeyDown(e, rIdx, pIdx)}
+                                style={{ width: "100%", background: tagColor ? `${tagColor}22` : "rgba(242,239,230,0.06)", border: tagColor ? `2px solid ${tagColor}` : `1px solid rgba(242,239,230,0.15)`, borderRadius: 6, padding: "8px 6px", color: PALETTE.cream, fontSize: 14, textAlign: "center", outline: "none" }}
+                              />
+                            </td>
+                          );
+                        })}
+                        <td>
+                          <button onClick={() => deleteRound(rIdx)} style={{ background: "none", border: "none", color: PALETTE.slate, cursor: "pointer", padding: 4 }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td style={{ padding: "10px 4px", fontSize: 13, color: PALETTE.brassLight, fontWeight: 700 }}>Total</td>
+                    {totals.map((t, i) => (
+                      <td key={i} style={{ textAlign: "center", fontSize: 15, fontWeight: 700, color: t === minTotal ? PALETTE.brassLight : PALETTE.cream, borderTop: `1px solid rgba(242,239,230,0.15)`, paddingTop: 10 }}>{t}</td>
+                    ))}
+                    <td style={{ borderTop: `1px solid rgba(242,239,230,0.15)` }}></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: `linear-gradient(0deg, ${PALETTE.railDeep} 60%, transparent)` }}>
+          <button onClick={addRound} style={{ width: "100%", maxWidth: 480, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, ...btnPrimary }}>
+            <Plus size={18} /> Add round
+          </button>
+        </div>
+
+        {/* Bottom sheet */}
+        {sheetOpen && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 10, display: "flex", alignItems: "flex-end" }} onClick={() => setSheetOpen(false)}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: PALETTE.rail, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: "20px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(242,239,230,0.2)", margin: "0 auto 10px" }} />
+              <button onClick={() => { setSheetOpen(false); setConfirmAction("finish"); }} style={{ ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <Check size={16} /> Finish Game
+              </button>
+              <button onClick={() => { setSheetOpen(false); setConfirmAction("abandon"); }} style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: PALETTE.red, borderColor: "rgba(179,82,79,0.4)" }}>
+                <Skull size={16} /> Abandon Game
+              </button>
+              <button onClick={() => setSheetOpen(false)} style={{ background: "none", border: "none", color: PALETTE.slate, padding: 10, fontSize: 14, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Confirm modal */}
+        {confirmAction && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 11, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <div style={{ background: PALETTE.rail, border: `1px solid rgba(242,239,230,0.15)`, borderRadius: 12, padding: 20, maxWidth: 340, width: "100%" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+                {confirmAction === "finish" ? "Finish this game?" : "Abandon this game?"}
+              </div>
+              <div style={{ fontSize: 13, color: PALETTE.slate, marginBottom: 18 }}>
+                {confirmAction === "finish" ? "This locks in the results and saves it to your family's game history." : "This discards the game completely. It won't be saved anywhere. This can't be undone."}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setConfirmAction(null)} style={{ ...btnSecondary, flex: 1 }}>Cancel</button>
+                <button
+                  onClick={() => (confirmAction === "finish" ? finishGame() : abandonGame())}
+                  style={{ ...btnPrimary, flex: 1, background: confirmAction === "abandon" ? PALETTE.red : PALETTE.brass, color: confirmAction === "abandon" ? PALETTE.cream : PALETTE.railDeep }}
+                >
+                  {confirmAction === "finish" ? "Finish" : "Abandon"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---------- RECAP ----------
+  if (view === "recap") {
+    const game = games.find((g) => g.id === recapGameId);
+    if (!game) { setView("home"); return null; }
+    const gs = computeGameStats(game);
+    const names = (idxArr) => idxArr.map((i) => getPlayerName(game.playerIds[i])).join(", ");
+
+    const Row = ({ label, value, color }) => (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: `1px solid rgba(242,239,230,0.1)` }}>
+        <div style={{ fontSize: 13, color: PALETTE.slate }}>{label}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: color || PALETTE.cream, textAlign: "right" }}>{value}</div>
+      </div>
+    );
+
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <Trophy size={32} color={PALETTE.brassLight} />
+            <h1 style={{ fontSize: 22, margin: "8px 0 2px" }}>{game.title}</h1>
+            <div style={{ fontSize: 12, color: PALETTE.slate }}>{formatDateTime(game.finishedAt)}</div>
+          </div>
+
+          <Row label="Winner" value={names(gs.winnerIdx)} color={PALETTE.green} />
+          <Row label="Last place" value={names(gs.loserIdx)} color={PALETTE.red} />
+          <Row label="Most rounds won" value={`${names(gs.mostRoundsWonIdx)} (${gs.maxRoundWins})`} />
+          <Row label="Least rounds won" value={`${names(gs.leastRoundsWonIdx)} (${gs.minRoundWins})`} />
+          <Row label="Most drinks" value={`${names(gs.mostDrinksIdx)} (${gs.maxDrinks})`} color={PALETTE.red} />
+          <Row label="Least drinks" value={`${names(gs.leastDrinksIdx)} (${gs.minDrinks})`} color={PALETTE.green} />
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
+            <button onClick={() => setView("dashboard")} style={{ ...btnSecondary, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
+              <BarChart3 size={16} /> View Dashboard
+            </button>
+            <button onClick={() => setView("home")} style={{ ...btnPrimary }}>Back to Home</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- DASHBOARD ----------
+  if (view === "dashboard") {
+    const allStats = computeDashboard();
+    const stats = [...allStats].sort((a, b) => b.gameWins - a.gameWins);
+    const played = allStats.filter((s) => s.gamesPlayed > 0);
+    const winsData = [...played].sort((a, b) => b.gameWins - a.gameWins).map((s) => ({ name: s.name, value: s.gameWins }));
+    const drinksData = [...played].sort((a, b) => b.totalDrinks - a.totalDrinks).map((s) => ({ name: s.name, value: s.totalDrinks }));
+    const rateData = [...played]
+      .map((s) => ({ name: s.name, value: Math.round((s.gameWins / s.gamesPlayed) * 100) }))
+      .sort((a, b) => b.value - a.value);
+    const trend = monthlyGameCounts(games);
+    const historyList = [...games].sort((a, b) => b.finishedAt - a.finishedAt);
+
+    const cardStyle = { background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 12, padding: "16px 12px 8px", marginBottom: 18 };
+    const cardTitleStyle = { fontSize: 13, fontWeight: 600, color: PALETTE.cream, marginBottom: 10, paddingLeft: 8 };
+    const axisStyle = { fontSize: 11, fill: PALETTE.slate };
+
+    function HBarChart({ data, color }) {
+      if (data.length === 0) return <div style={{ color: PALETTE.slate, fontSize: 13, padding: "0 8px 12px" }}>No data yet.</div>;
+      const height = Math.max(60, data.length * 34);
+      return (
+        <ResponsiveContainer width="100%" height={height}>
+          <BarChart data={data} layout="vertical" margin={{ left: 6, right: 16, top: 0, bottom: 0 }}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="name" tick={axisStyle} width={80} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} cursor={{ fill: "rgba(242,239,230,0.05)" }} />
+            <Bar dataKey="value" fill={color} radius={[0, 6, 6, 0]} barSize={16} />
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <BackHeader title="Dashboard" onBack={() => setView("home")} />
+
+          {games.length === 0 ? (
+            <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No games played yet.</div>
+          ) : (
+            <>
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Games played over time</div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={trend} margin={{ left: -16, right: 16, top: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(242,239,230,0.08)" vertical={false} />
+                    <XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={axisStyle} axisLine={false} tickLine={false} width={24} />
+                    <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} />
+                    <Line type="monotone" dataKey="count" stroke={PALETTE.brassLight} strokeWidth={2} dot={{ r: 3, fill: PALETTE.brassLight }} name="Games" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Game wins by player</div>
+                <HBarChart data={winsData} color={PALETTE.brassLight} />
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Win rate %</div>
+                <HBarChart data={rateData} color={PALETTE.green} />
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Total drinks by player</div>
+                <HBarChart data={drinksData} color={PALETTE.red} />
+              </div>
+            </>
+          )}
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, marginTop: 8, textTransform: "uppercase", letterSpacing: 1 }}>Players</div>
+          {stats.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No players yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {stats.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => { setSelectedPlayerId(s.id); setView("player"); }}
+                style={{ textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate }}>{s.gamesPlayed} games</div>
+                </div>
+                <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: PALETTE.slate, flexWrap: "wrap" }}>
+                  <span><b style={{ color: PALETTE.brassLight }}>{s.gameWins}</b> wins</span>
+                  <span><b style={{ color: PALETTE.red }}>{s.gameLosses}</b> losses</span>
+                  <span><b style={{ color: PALETTE.cream }}>{s.roundWins}</b> round wins</span>
+                  <span><b style={{ color: PALETTE.red }}>{s.totalDrinks}</b> drinks</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Game history</div>
+          {historyList.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14 }}>No games yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {historyList.map((g) => {
+              const gs = computeGameStats(g);
+              const winnerNames = gs.winnerIdx.map((i) => getPlayerName(g.playerIds[i])).join(", ");
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => { setRecapGameId(g.id); setView("recap"); }}
+                  style={{ textAlign: "left", background: "rgba(242,239,230,0.04)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.title}</div>
+                    <div style={{ fontSize: 11, color: PALETTE.slate }}>{formatDateTime(g.finishedAt)}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 4 }}>
+                    {g.playerIds.map((pid) => getPlayerName(pid)).join(", ")}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 4, color: PALETTE.green, fontWeight: 600 }}>
+                    Won by {winnerNames}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- PLAYER DETAIL ----------
+  if (view === "player") {
+    const stats = computeDashboard().find((s) => s.id === selectedPlayerId);
+    if (!stats) { setView("dashboard"); return null; }
+    const recent = games.filter((g) => g.playerIds.includes(selectedPlayerId)).sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 10);
+    const winRate = stats.gamesPlayed ? Math.round((stats.gameWins / stats.gamesPlayed) * 100) : 0;
+    const drinksPerGame = stats.drinkingGamesPlayed ? (stats.totalDrinks / stats.drinkingGamesPlayed).toFixed(1) : "0.0";
+
+    const Stat = ({ label, value }) => (
+      <div style={{ background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 10, padding: "12px", flex: "1 1 44%" }}>
+        <div style={{ fontSize: 11, color: PALETTE.slate, marginBottom: 4 }}>{label}</div>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div>
+      </div>
+    );
+
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <BackHeader title={stats.name} onBack={() => setView("dashboard")} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
+            <Stat label="Games played" value={stats.gamesPlayed} />
+            <Stat label="Game wins" value={`${stats.gameWins} (${winRate}%)`} />
+            <Stat label="Game losses" value={stats.gameLosses} />
+            <Stat label="Round wins" value={stats.roundWins} />
+            <Stat label="Total drinks" value={stats.totalDrinks} />
+            <Stat label="Drinks / game" value={drinksPerGame} />
+          </div>
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Recent games</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {recent.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 13 }}>No games yet.</div>}
+            {recent.map((g) => {
+              const gs = computeGameStats(g);
+              const idx = g.playerIds.indexOf(selectedPlayerId);
+              const won = gs.winnerIdx.includes(idx);
+              const lost = gs.loserIdx.includes(idx);
+              return (
+                <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(242,239,230,0.04)", borderRadius: 8, padding: "10px 12px" }}>
+                  <div>
+                    <div style={{ fontSize: 13 }}>{g.title}</div>
+                    <div style={{ fontSize: 11, color: PALETTE.slate }}>{formatDateTime(g.finishedAt)}</div>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: won ? PALETTE.green : lost ? PALETTE.red : PALETTE.slate }}>
+                    {won ? "Won" : lost ? "Last" : gs.totals[idx]}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
