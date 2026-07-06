@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreVertical,
-  Wine, Users, Archive, ArchiveRestore, Pencil, Skull
+  Wine, Users, UserPlus, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -168,6 +168,9 @@ export default function MexicanTrainFamilyApp() {
   const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
   const [focusedCell, setFocusedCell] = useState(null); // {r, p} | null — drives the score-entry nav toolbar
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [addPlayerStep, setAddPlayerStep] = useState("pick"); // 'pick' | 'confirm'
+  const [addPlayerCandidateId, setAddPlayerCandidateId] = useState(null);
+  const [addPlayerNewName, setAddPlayerNewName] = useState("");
 
   const saveTimers = useRef({});
   const inputRefs = useRef({});
@@ -714,6 +717,99 @@ export default function MexicanTrainFamilyApp() {
     );
   }
 
+  // ---------- ADD PLAYER MID-GAME ----------
+  if (view === "addPlayer" && activeGame) {
+    const eligible = players.filter((p) => !p.archived && !activeGame.playerIds.includes(p.id));
+
+    if (addPlayerStep === "pick") {
+      function createAndSelect() {
+        const id = addPlayer(addPlayerNewName, false);
+        if (id) { setAddPlayerCandidateId(id); setAddPlayerStep("confirm"); setAddPlayerNewName(""); }
+      }
+      return (
+        <div style={pageStyle}>
+          <div style={{ maxWidth: 480, margin: "0 auto" }}>
+            <BackHeader title="Add Player" onBack={() => setView("game")} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+              {eligible.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setAddPlayerCandidateId(p.id); setAddPlayerStep("confirm"); }}
+                  style={{ padding: "10px 16px", borderRadius: 999, border: `1px solid rgba(242,239,230,0.25)`, background: "rgba(242,239,230,0.05)", color: PALETTE.cream, fontSize: 14, cursor: "pointer" }}
+                >
+                  {p.name}
+                </button>
+              ))}
+              {eligible.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14 }}>Everyone active is already in this game.</div>}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={addPlayerNewName}
+                onChange={(e) => setAddPlayerNewName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") createAndSelect(); }}
+                placeholder="Add a new player"
+                style={{ flex: 1, background: "rgba(242,239,230,0.06)", border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, padding: "10px 12px", color: PALETTE.cream, fontSize: 14 }}
+              />
+              <button onClick={createAndSelect} style={{ ...btnSecondary, padding: "0 16px" }}>
+                <Plus size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- confirm step ----
+    const candidate = players.find((p) => p.id === addPlayerCandidateId);
+    const missedRounds = activeGame.rounds.map((round, idx) => ({
+      idx,
+      high: round.length ? Math.max(...round.map((s) => Number(s) || 0)) : 0,
+    }));
+
+    function confirmAddPlayer() {
+      const backfilled = activeGame.rounds.map((round) => {
+        const high = round.length ? Math.max(...round.map((s) => Number(s) || 0)) : 0;
+        return [...round, high];
+      });
+      setActiveGame((prev) => ({ ...prev, playerIds: [...prev.playerIds, addPlayerCandidateId], rounds: backfilled }));
+      setView("game");
+    }
+
+    return (
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 480, margin: "0 auto" }}>
+          <BackHeader title="Add Player" onBack={() => setAddPlayerStep("pick")} />
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 14 }}>
+            Add {candidate?.name} to this game?
+          </div>
+          {missedRounds.length === 0 ? (
+            <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>
+              No rounds played yet — {candidate?.name} will start even with everyone else.
+            </div>
+          ) : (
+            <>
+              <div style={{ color: PALETTE.slate, fontSize: 13, marginBottom: 12, lineHeight: 1.5 }}>
+                {candidate?.name} missed {missedRounds.length} round{missedRounds.length === 1 ? "" : "s"}. They'll be backfilled with that round's highest (worst) score{activeGame.drinkingMode ? ", and will pick up the drink tag for those rounds since it ties the existing high" : ""}:
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {missedRounds.map(({ idx, high }) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", background: "rgba(242,239,230,0.05)", borderRadius: 8, padding: "10px 12px", fontSize: 14 }}>
+                    <span style={{ color: PALETTE.slate }}>Round {idx + 1}</span>
+                    <span style={{ fontWeight: 700 }}>{high}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setView("game")} style={{ ...btnSecondary, flex: 1 }}>Cancel</button>
+            <button onClick={confirmAddPlayer} style={{ ...btnPrimary, flex: 1 }}>Confirm</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ---------- GAME ----------
   if (view === "game" && activeGame) {
     const totals = activeGame.playerIds.map((_, i) => activeGame.rounds.reduce((s, r) => s + (Number(r[i]) || 0), 0));
@@ -828,7 +924,7 @@ export default function MexicanTrainFamilyApp() {
                           const tagLabel = flags?.low ? "L" : flags?.high ? "H" : flags?.middle ? "M" : null;
                           return (
                             <td key={pIdx} style={{ padding: "4px", position: "relative" }}>
-                              {tagColor && <div style={{ position: "absolute", top: -1, right: 6, fontSize: 9, fontWeight: 700, color: tagColor, zIndex: 1 }}>{tagLabel}</div>}
+                              {tagColor && <div style={{ position: "absolute", top: "50%", right: 10, transform: "translateY(-50%)", fontSize: 9, fontWeight: 700, color: tagColor, zIndex: 1, pointerEvents: "none" }}>{tagLabel}</div>}
                               <input
                                 ref={(el) => { inputRefs.current[`${rIdx}-${pIdx}`] = el; }}
                                 type="number"
@@ -896,6 +992,12 @@ export default function MexicanTrainFamilyApp() {
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 10, display: "flex", alignItems: "flex-end" }} onClick={() => setSheetOpen(false)}>
             <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: PALETTE.rail, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: "20px", display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(242,239,230,0.2)", margin: "0 auto 10px" }} />
+              <button
+                onClick={() => { setSheetOpen(false); setAddPlayerStep("pick"); setAddPlayerCandidateId(null); setAddPlayerNewName(""); setView("addPlayer"); }}
+                style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+              >
+                <UserPlus size={16} /> Add Player to Game
+              </button>
               <button onClick={() => { setSheetOpen(false); setConfirmAction("finish"); }} style={{ ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <Check size={16} /> Finish Game
               </button>
