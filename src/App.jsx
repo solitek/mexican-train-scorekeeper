@@ -179,12 +179,20 @@ export default function MexicanTrainFamilyApp() {
   // iOS Safari doesn't shrink the layout viewport when the keyboard opens, so
   // `position: fixed; bottom: 0` ends up hidden behind the keyboard. Track the
   // visual viewport to offset fixed bottom bars above it instead.
+  //
+  // Comparing against window.innerHeight (and visualViewport.offsetTop) is
+  // unreliable once iOS's focus-triggered auto-scroll kicks in — offsetTop and
+  // innerHeight don't line up the way you'd expect, which overshoots the inset
+  // and leaves the toolbar floating over the middle of the page instead of
+  // right above the keyboard. Comparing against the viewport's own height
+  // right before the keyboard opened avoids that entirely.
+  const isEditingCell = !!focusedCell;
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
+    if (!vv || !isEditingCell) { setKeyboardInset(0); return; }
+    const baselineHeight = vv.height;
     function updateInset() {
-      const inset = window.innerHeight - vv.height - vv.offsetTop;
-      setKeyboardInset(Math.max(0, Math.round(inset)));
+      setKeyboardInset(Math.max(0, Math.round(baselineHeight - vv.height)));
     }
     updateInset();
     vv.addEventListener("resize", updateInset);
@@ -193,7 +201,7 @@ export default function MexicanTrainFamilyApp() {
       vv.removeEventListener("resize", updateInset);
       vv.removeEventListener("scroll", updateInset);
     };
-  }, []);
+  }, [isEditingCell]);
 
   useEffect(() => {
     (async () => {
