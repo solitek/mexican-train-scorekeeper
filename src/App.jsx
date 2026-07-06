@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   Plus, Trash2, Trophy, X, Check, ChevronLeft, MoreVertical,
-  Wine, Users, BarChart3, Archive, ArchiveRestore, Pencil, Skull
+  Wine, Users, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -125,23 +125,6 @@ function monthlyGameCounts(games) {
   return Object.values(map).sort((a, b) => (a.key > b.key ? 1 : -1));
 }
 
-function DominoMark({ size = 26 }) {
-  return (
-    <svg width={size} height={size * 1.9} viewBox="0 0 40 76" fill="none">
-      <rect x="1" y="1" width="38" height="74" rx="6" fill={PALETTE.cream} stroke={PALETTE.brass} strokeWidth="2" />
-      <line x1="4" y1="38" x2="36" y2="38" stroke={PALETTE.brass} strokeWidth="2" />
-      {[12, 20, 28].map((cy) => (
-        <React.Fragment key={cy}>
-          <circle cx="12" cy={cy - 20} r="2.6" fill={PALETTE.railDeep} />
-          <circle cx="28" cy={cy - 20} r="2.6" fill={PALETTE.railDeep} />
-          <circle cx="12" cy={cy + 20} r="2.6" fill={PALETTE.railDeep} />
-          <circle cx="28" cy={cy + 20} r="2.6" fill={PALETTE.railDeep} />
-        </React.Fragment>
-      ))}
-    </svg>
-  );
-}
-
 const btnPrimary = {
   background: PALETTE.brass,
   border: "none",
@@ -166,7 +149,7 @@ const btnSecondary = {
 
 export default function MexicanTrainFamilyApp() {
   const [loaded, setLoaded] = useState(false);
-  const [view, setView] = useState("home"); // home | pick | manage | game | recap | dashboard | player
+  const [view, setView] = useState("home"); // home (incl. dashboard) | pick | manage | game | recap | player
   const [players, setPlayers] = useState([]); // {id,name,archived,createdAt}
   const [games, setGames] = useState([]); // finished games
   const [activeGame, setActiveGame] = useState(null); // in-progress game
@@ -207,48 +190,6 @@ export default function MexicanTrainFamilyApp() {
         const { data, error } = await supabase.from("games").select("*").eq("status", "active").order("started_at", { ascending: false }).limit(1);
         if (!error && data && data.length > 0) loadedActive = rowToGame(data[0]);
       } catch (e) {}
-
-      // One-time import of "Roz's Birthday / July 4th" from a photographed scoresheet.
-      const alreadyImported = loadedGames.some((g) => g.title === "Roz's Birthday / July 4th" && g.playerIds.length === 8);
-      if (!alreadyImported) {
-        const names = ["Brandon", "Jay", "Joel", "Kyra", "Maribeth", "Michelle", "Roz", "Ruth"];
-        const rounds = [
-          [24, 14, 44, 26, 28, 0, 18, 37],
-          [16, 0, 51, 45, 37, 51, 31, 35],
-          [14, 0, 22, 36, 10, 30, 17, 16],
-          [64, 31, 59, 20, 41, 0, 56, 21],
-          [0, 36, 42, 84, 52, 45, 7, 63],
-          [112, 5, 41, 39, 65, 0, 32, 44],
-          [7, 58, 22, 11, 0, 8, 15, 30],
-          [24, 59, 76, 131, 73, 0, 47, 96],
-          [10, 54, 96, 99, 51, 135, 86, 0],
-          [0, 106, 22, 11, 64, 46, 50, 75],
-          [0, 116, 30, 132, 36, 47, 53, 15],
-          [44, 41, 36, 24, 13, 0, 61, 22],
-          [90, 53, 0, 105, 66, 103, 70, 110],
-        ];
-        const newPlayers = [];
-        const playerIds = names.map((name) => {
-          const existing = loadedPlayers.find((pl) => pl.name.toLowerCase() === name.toLowerCase());
-          if (existing) return existing.id;
-          const newP = { id: uid(), name, archived: false, createdAt: Date.now() };
-          newPlayers.push(newP);
-          return newP.id;
-        });
-        if (newPlayers.length > 0) {
-          loadedPlayers = [...loadedPlayers, ...newPlayers];
-          try {
-            await supabase.from("players").insert(
-              newPlayers.map((p) => ({ id: p.id, name: p.name, archived: p.archived, created_at: p.createdAt }))
-            );
-          } catch (e) {}
-        }
-        const startedAt = new Date(2026, 6, 4, 19, 0, 0).getTime();
-        const finishedAt = new Date(2026, 6, 4, 23, 30, 0).getTime();
-        const seededGame = { id: uid(), title: "Roz's Birthday / July 4th", playerIds, rounds, drinkingMode: true, startedAt, finishedAt };
-        loadedGames = [...loadedGames, seededGame];
-        try { await supabase.from("games").insert(gameToRow(seededGame, "finished")); } catch (e) {}
-      }
 
       setPlayers(loadedPlayers);
       setGames(loadedGames);
@@ -428,20 +369,50 @@ export default function MexicanTrainFamilyApp() {
     );
   }
 
-  // ---------- HOME ----------
+  // ---------- HOME (+ DASHBOARD) ----------
   if (view === "home") {
+    const allStats = computeDashboard();
+    const stats = [...allStats].sort((a, b) => b.gameWins - a.gameWins);
+    const played = allStats.filter((s) => s.gamesPlayed > 0);
+    const winsData = [...played].sort((a, b) => b.gameWins - a.gameWins).map((s) => ({ name: s.name, value: s.gameWins }));
+    const drinksData = [...played].sort((a, b) => b.totalDrinks - a.totalDrinks).map((s) => ({ name: s.name, value: s.totalDrinks }));
+    const rateData = [...played]
+      .map((s) => ({ name: s.name, value: Math.round((s.gameWins / s.gamesPlayed) * 100) }))
+      .sort((a, b) => b.value - a.value);
+    const trend = monthlyGameCounts(games);
+    const historyList = [...games].sort((a, b) => b.finishedAt - a.finishedAt);
+
+    const cardStyle = { background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 12, padding: "16px 12px 8px", marginBottom: 18 };
+    const cardTitleStyle = { fontSize: 13, fontWeight: 600, color: PALETTE.cream, marginBottom: 10, paddingLeft: 8 };
+    const axisStyle = { fontSize: 11, fill: PALETTE.slate };
+
+    function HBarChart({ data, color }) {
+      if (data.length === 0) return <div style={{ color: PALETTE.slate, fontSize: 13, padding: "0 8px 12px" }}>No data yet.</div>;
+      const height = Math.max(60, data.length * 34);
+      return (
+        <ResponsiveContainer width="100%" height={height}>
+          <BarChart data={data} layout="vertical" margin={{ left: 6, right: 16, top: 0, bottom: 0 }}>
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="name" tick={axisStyle} width={80} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} cursor={{ fill: "rgba(242,239,230,0.05)" }} />
+            <Bar dataKey="value" fill={color} radius={[0, 6, 6, 0]} barSize={16} />
+          </BarChart>
+        </ResponsiveContainer>
+      );
+    }
+
     return (
       <div style={pageStyle}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
-            <DominoMark size={30} />
+            <img src="/icon.png" alt="" width={40} height={40} style={{ borderRadius: 10, display: "block" }} />
             <div>
               <div style={{ fontSize: 11, letterSpacing: "3px", color: PALETTE.brassLight, textTransform: "uppercase" }}>All Aboard</div>
               <h1 style={{ fontSize: 28, margin: 0, fontWeight: 700 }}>Mexican Train</h1>
             </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
             {activeGame && (
               <button onClick={() => setView("game")} style={{ ...btnPrimary, display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
                 Resume Game: {activeGame.title}
@@ -453,9 +424,90 @@ export default function MexicanTrainFamilyApp() {
             >
               + Start New Game
             </button>
-            <button onClick={() => setView("dashboard")} style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <BarChart3 size={16} /> Dashboard
-            </button>
+          </div>
+
+          {games.length === 0 ? (
+            <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No games played yet.</div>
+          ) : (
+            <>
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Games played over time</div>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={trend} margin={{ left: -16, right: 16, top: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(242,239,230,0.08)" vertical={false} />
+                    <XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={axisStyle} axisLine={false} tickLine={false} width={24} />
+                    <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} />
+                    <Line type="monotone" dataKey="count" stroke={PALETTE.brassLight} strokeWidth={2} dot={{ r: 3, fill: PALETTE.brassLight }} name="Games" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Game wins by player</div>
+                <HBarChart data={winsData} color={PALETTE.brassLight} />
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Win rate %</div>
+                <HBarChart data={rateData} color={PALETTE.green} />
+              </div>
+
+              <div style={cardStyle}>
+                <div style={cardTitleStyle}>Total drinks by player</div>
+                <HBarChart data={drinksData} color={PALETTE.red} />
+              </div>
+            </>
+          )}
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, marginTop: 8, textTransform: "uppercase", letterSpacing: 1 }}>Players</div>
+          {stats.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No players yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+            {stats.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => { setSelectedPlayerId(s.id); setView("player"); }}
+                style={{ textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate }}>{s.gamesPlayed} games</div>
+                </div>
+                <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: PALETTE.slate, flexWrap: "wrap" }}>
+                  <span><b style={{ color: PALETTE.brassLight }}>{s.gameWins}</b> wins</span>
+                  <span><b style={{ color: PALETTE.red }}>{s.gameLosses}</b> losses</span>
+                  <span><b style={{ color: PALETTE.cream }}>{s.roundWins}</b> round wins</span>
+                  <span><b style={{ color: PALETTE.red }}>{s.totalDrinks}</b> drinks</span>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Game history</div>
+          {historyList.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14 }}>No games yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {historyList.map((g) => {
+              const gs = computeGameStats(g);
+              const winnerNames = gs.winnerIdx.map((i) => getPlayerName(g.playerIds[i])).join(", ");
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => { setRecapGameId(g.id); setView("recap"); }}
+                  style={{ textAlign: "left", background: "rgba(242,239,230,0.04)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.title}</div>
+                    <div style={{ fontSize: 11, color: PALETTE.slate }}>{formatDateTime(g.finishedAt)}</div>
+                  </div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 4 }}>
+                    {g.playerIds.map((pid) => getPlayerName(pid)).join(", ")}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 4, color: PALETTE.green, fontWeight: 600 }}>
+                    Won by {winnerNames}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -606,7 +658,7 @@ export default function MexicanTrainFamilyApp() {
         {/* Compact header */}
         <div style={{ padding: "20px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-            <DominoMark size={22} />
+            <img src="/icon.png" alt="" width={30} height={30} style={{ borderRadius: 7, display: "block", flexShrink: 0 }} />
             {editingTitle ? (
               <input
                 autoFocus
@@ -685,7 +737,7 @@ export default function MexicanTrainFamilyApp() {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", top: 0, left: 0, background: PALETTE.rail, zIndex: 3 }}>Round</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", top: 0, left: 0, background: PALETTE.rail, zIndex: 3, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Round</th>
                     {activeGame.playerIds.map((pid, i) => (
                       <th key={pid} style={{ textAlign: "center", padding: "6px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, minWidth: 78, position: "sticky", top: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `0 1px 0 rgba(242,239,230,0.15)` }}>
                         {getPlayerName(pid)}
@@ -699,7 +751,7 @@ export default function MexicanTrainFamilyApp() {
                     const roundFlags = activeGame.drinkingMode ? getDrinkFlags(round) : null;
                     return (
                       <tr key={rIdx}>
-                        <td style={{ padding: "6px 4px", fontSize: 13, color: PALETTE.slate }}>{rIdx + 1}</td>
+                        <td style={{ padding: "6px 4px", fontSize: 13, color: PALETTE.slate, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>{rIdx + 1}</td>
                         {round.map((score, pIdx) => {
                           const flags = roundFlags ? roundFlags[pIdx] : null;
                           const tagColor = flags?.low ? PALETTE.green : flags?.high ? PALETTE.red : flags?.middle ? PALETTE.brass : null;
@@ -730,7 +782,7 @@ export default function MexicanTrainFamilyApp() {
                     );
                   })}
                   <tr>
-                    <td style={{ padding: "10px 4px", fontSize: 13, color: PALETTE.brassLight, fontWeight: 700 }}>Total</td>
+                    <td style={{ padding: "10px 4px", fontSize: 13, color: PALETTE.brassLight, fontWeight: 700, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Total</td>
                     {totals.map((t, i) => (
                       <td key={i} style={{ textAlign: "center", fontSize: 15, fontWeight: 700, color: t === minTotal ? PALETTE.brassLight : PALETTE.cream, borderTop: `1px solid rgba(242,239,230,0.15)`, paddingTop: 10 }}>{t}</td>
                     ))}
@@ -823,135 +875,7 @@ export default function MexicanTrainFamilyApp() {
           <Row label="Least drinks" value={`${names(gs.leastDrinksIdx)} (${gs.minDrinks})`} color={PALETTE.green} />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
-            <button onClick={() => setView("dashboard")} style={{ ...btnSecondary, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
-              <BarChart3 size={16} /> View Dashboard
-            </button>
             <button onClick={() => setView("home")} style={{ ...btnPrimary }}>Back to Home</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ---------- DASHBOARD ----------
-  if (view === "dashboard") {
-    const allStats = computeDashboard();
-    const stats = [...allStats].sort((a, b) => b.gameWins - a.gameWins);
-    const played = allStats.filter((s) => s.gamesPlayed > 0);
-    const winsData = [...played].sort((a, b) => b.gameWins - a.gameWins).map((s) => ({ name: s.name, value: s.gameWins }));
-    const drinksData = [...played].sort((a, b) => b.totalDrinks - a.totalDrinks).map((s) => ({ name: s.name, value: s.totalDrinks }));
-    const rateData = [...played]
-      .map((s) => ({ name: s.name, value: Math.round((s.gameWins / s.gamesPlayed) * 100) }))
-      .sort((a, b) => b.value - a.value);
-    const trend = monthlyGameCounts(games);
-    const historyList = [...games].sort((a, b) => b.finishedAt - a.finishedAt);
-
-    const cardStyle = { background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 12, padding: "16px 12px 8px", marginBottom: 18 };
-    const cardTitleStyle = { fontSize: 13, fontWeight: 600, color: PALETTE.cream, marginBottom: 10, paddingLeft: 8 };
-    const axisStyle = { fontSize: 11, fill: PALETTE.slate };
-
-    function HBarChart({ data, color }) {
-      if (data.length === 0) return <div style={{ color: PALETTE.slate, fontSize: 13, padding: "0 8px 12px" }}>No data yet.</div>;
-      const height = Math.max(60, data.length * 34);
-      return (
-        <ResponsiveContainer width="100%" height={height}>
-          <BarChart data={data} layout="vertical" margin={{ left: 6, right: 16, top: 0, bottom: 0 }}>
-            <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" tick={axisStyle} width={80} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} cursor={{ fill: "rgba(242,239,230,0.05)" }} />
-            <Bar dataKey="value" fill={color} radius={[0, 6, 6, 0]} barSize={16} />
-          </BarChart>
-        </ResponsiveContainer>
-      );
-    }
-
-    return (
-      <div style={pageStyle}>
-        <div style={{ maxWidth: 480, margin: "0 auto" }}>
-          <BackHeader title="Dashboard" onBack={() => setView("home")} />
-
-          {games.length === 0 ? (
-            <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No games played yet.</div>
-          ) : (
-            <>
-              <div style={cardStyle}>
-                <div style={cardTitleStyle}>Games played over time</div>
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={trend} margin={{ left: -16, right: 16, top: 4, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(242,239,230,0.08)" vertical={false} />
-                    <XAxis dataKey="label" tick={axisStyle} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={axisStyle} axisLine={false} tickLine={false} width={24} />
-                    <Tooltip contentStyle={{ background: PALETTE.railDeep, border: `1px solid rgba(242,239,230,0.2)`, borderRadius: 8, fontSize: 12 }} labelStyle={{ color: PALETTE.cream }} />
-                    <Line type="monotone" dataKey="count" stroke={PALETTE.brassLight} strokeWidth={2} dot={{ r: 3, fill: PALETTE.brassLight }} name="Games" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div style={cardStyle}>
-                <div style={cardTitleStyle}>Game wins by player</div>
-                <HBarChart data={winsData} color={PALETTE.brassLight} />
-              </div>
-
-              <div style={cardStyle}>
-                <div style={cardTitleStyle}>Win rate %</div>
-                <HBarChart data={rateData} color={PALETTE.green} />
-              </div>
-
-              <div style={cardStyle}>
-                <div style={cardTitleStyle}>Total drinks by player</div>
-                <HBarChart data={drinksData} color={PALETTE.red} />
-              </div>
-            </>
-          )}
-
-          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, marginTop: 8, textTransform: "uppercase", letterSpacing: 1 }}>Players</div>
-          {stats.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No players yet.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {stats.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => { setSelectedPlayerId(s.id); setView("player"); }}
-                style={{ textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
-                  <div style={{ fontSize: 12, color: PALETTE.slate }}>{s.gamesPlayed} games</div>
-                </div>
-                <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: PALETTE.slate, flexWrap: "wrap" }}>
-                  <span><b style={{ color: PALETTE.brassLight }}>{s.gameWins}</b> wins</span>
-                  <span><b style={{ color: PALETTE.red }}>{s.gameLosses}</b> losses</span>
-                  <span><b style={{ color: PALETTE.cream }}>{s.roundWins}</b> round wins</span>
-                  <span><b style={{ color: PALETTE.red }}>{s.totalDrinks}</b> drinks</span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Game history</div>
-          {historyList.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14 }}>No games yet.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {historyList.map((g) => {
-              const gs = computeGameStats(g);
-              const winnerNames = gs.winnerIdx.map((i) => getPlayerName(g.playerIds[i])).join(", ");
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => { setRecapGameId(g.id); setView("recap"); }}
-                  style={{ textAlign: "left", background: "rgba(242,239,230,0.04)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.title}</div>
-                    <div style={{ fontSize: 11, color: PALETTE.slate }}>{formatDateTime(g.finishedAt)}</div>
-                  </div>
-                  <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 4 }}>
-                    {g.playerIds.map((pid) => getPlayerName(pid)).join(", ")}
-                  </div>
-                  <div style={{ fontSize: 12, marginTop: 4, color: PALETTE.green, fontWeight: 600 }}>
-                    Won by {winnerNames}
-                  </div>
-                </button>
-              );
-            })}
           </div>
         </div>
       </div>
@@ -961,7 +885,7 @@ export default function MexicanTrainFamilyApp() {
   // ---------- PLAYER DETAIL ----------
   if (view === "player") {
     const stats = computeDashboard().find((s) => s.id === selectedPlayerId);
-    if (!stats) { setView("dashboard"); return null; }
+    if (!stats) { setView("home"); return null; }
     const recent = games.filter((g) => g.playerIds.includes(selectedPlayerId)).sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 10);
     const winRate = stats.gamesPlayed ? Math.round((stats.gameWins / stats.gamesPlayed) * 100) : 0;
     const drinksPerGame = stats.drinkingGamesPlayed ? (stats.totalDrinks / stats.drinkingGamesPlayed).toFixed(1) : "0.0";
@@ -976,7 +900,7 @@ export default function MexicanTrainFamilyApp() {
     return (
       <div style={pageStyle}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
-          <BackHeader title={stats.name} onBack={() => setView("dashboard")} />
+          <BackHeader title={stats.name} onBack={() => setView("home")} />
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
             <Stat label="Games played" value={stats.gamesPlayed} />
             <Stat label="Game wins" value={`${stats.gameWins} (${winRate}%)`} />
