@@ -716,7 +716,7 @@ export default function MexicanTrainFamilyApp() {
                                 onChange={(e) => updateScore(rIdx, pIdx, e.target.value)}
                                 onFocus={(e) => e.target.select()}
                                 onKeyDown={(e) => handleCellKeyDown(e, rIdx, pIdx)}
-                                style={{ width: "100%", background: tagColor ? `${tagColor}22` : "rgba(242,239,230,0.06)", border: tagColor ? `2px solid ${tagColor}` : `1px solid rgba(242,239,230,0.15)`, borderRadius: 6, padding: "8px 6px", color: PALETTE.cream, fontSize: 14, textAlign: "center", outline: "none" }}
+                                style={{ width: "100%", boxSizing: "border-box", background: tagColor ? `${tagColor}22` : "rgba(242,239,230,0.06)", border: tagColor ? `2px solid ${tagColor}` : `1px solid rgba(242,239,230,0.15)`, borderRadius: 6, padding: "8px 6px", color: PALETTE.cream, fontSize: 14, textAlign: "center", outline: "none" }}
                               />
                             </td>
                           );
