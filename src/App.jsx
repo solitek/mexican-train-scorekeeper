@@ -4,7 +4,7 @@ import {
   LineChart, Line,
 } from "recharts";
 import {
-  Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreVertical,
+  Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronUp, ChevronDown, MoreVertical,
   Wine, Users, UserPlus, Home, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
@@ -166,14 +166,11 @@ export default function MexicanTrainFamilyApp() {
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
-  const [focusedCell, setFocusedCell] = useState(null); // {r, p} | null — drives the score-entry nav toolbar
   const [addPlayerStep, setAddPlayerStep] = useState("pick"); // 'pick' | 'confirm'
   const [addPlayerCandidateId, setAddPlayerCandidateId] = useState(null);
   const [addPlayerNewName, setAddPlayerNewName] = useState("");
 
   const saveTimers = useRef({});
-  const inputRefs = useRef({});
-  const scoreScrollRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -286,7 +283,6 @@ export default function MexicanTrainFamilyApp() {
       finishedAt: null,
     };
     setActiveGame(g);
-    setFocusedCell(null);
     setView("game");
   }
   function addRound() {
@@ -317,7 +313,6 @@ export default function MexicanTrainFamilyApp() {
     setRecapGameId(finished.id);
     setActiveGame(null);
     setConfirmAction(null);
-    setFocusedCell(null);
     setView("recap");
     supabase.from("games").upsert(gameToRow(finished, "finished")).then(({ error }) => { if (error) console.error(error); });
   }
@@ -326,63 +321,8 @@ export default function MexicanTrainFamilyApp() {
     const idToDelete = activeGame?.id;
     setActiveGame(null);
     setConfirmAction(null);
-    setFocusedCell(null);
     setView("home");
     if (idToDelete) supabase.from("games").delete().eq("id", idToDelete).then(({ error }) => { if (error) console.error(error); });
-  }
-
-  // ---------- Score cell keyboard nav ----------
-  function focusCell(r, p) {
-    const ref = inputRefs.current[`${r}-${p}`];
-    if (!ref) return;
-    ref.focus();
-    ref.select();
-    // Compensate for the sticky "Round" column: the browser's default
-    // scroll-into-view has no idea that column visually covers part of the
-    // scrollport, so it can leave a just-focused cell half-hidden behind it.
-    const scroller = scoreScrollRef.current;
-    const stickyCol = scroller?.querySelector("thead th");
-    if (scroller && stickyCol) {
-      const stickyWidth = stickyCol.getBoundingClientRect().width;
-      const cellRect = ref.getBoundingClientRect();
-      const scrollerRect = scroller.getBoundingClientRect();
-      const visibleLeft = scrollerRect.left + stickyWidth;
-      if (cellRect.left < visibleLeft) {
-        scroller.scrollLeft -= visibleLeft - cellRect.left;
-      } else if (cellRect.right > scrollerRect.right) {
-        scroller.scrollLeft += cellRect.right - scrollerRect.right;
-      }
-    }
-  }
-  function goToNextCell(r, p) {
-    const nPlayers = activeGame.playerIds.length;
-    focusCell(r, (p + 1) % nPlayers);
-  }
-  function goToPrevCell(r, p) {
-    const nPlayers = activeGame.playerIds.length;
-    focusCell(r, (p - 1 + nPlayers) % nPlayers);
-  }
-  function handleCellKeyDown(e, r, p) {
-    if (e.key === "Enter" || e.key === "ArrowRight") {
-      e.preventDefault();
-      goToNextCell(r, p);
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault();
-      goToPrevCell(r, p);
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (r + 1 < activeGame.rounds.length) focusCell(r + 1, p);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (r - 1 >= 0) focusCell(r - 1, p);
-    }
-  }
-  function handleScoreCellBlur() {
-    setTimeout(() => {
-      const active = document.activeElement;
-      const stillOnScoreCell = Object.values(inputRefs.current).includes(active);
-      if (!stillOnScoreCell) setFocusedCell(null);
-    }, 0);
   }
 
   // ---------- Dashboard aggregation ----------
@@ -819,7 +759,7 @@ export default function MexicanTrainFamilyApp() {
     });
 
     return (
-      <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`, fontFamily: "'Helvetica Neue', Arial, sans-serif", color: PALETTE.cream, paddingBottom: 100 }}>
+      <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`, fontFamily: "'Helvetica Neue', Arial, sans-serif", color: PALETTE.cream, paddingBottom: 24 }}>
         {/* Compact header */}
         <div style={{ padding: "20px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
@@ -898,17 +838,17 @@ export default function MexicanTrainFamilyApp() {
               No rounds yet. Add a round after each hand and enter each player's leftover pip count.
             </div>
           ) : (
-            <div ref={scoreScrollRef} style={{ overflow: "auto", maxHeight: 620, border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
+            <div style={{ overflowX: "auto", border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", top: 0, left: 0, background: PALETTE.rail, zIndex: 3, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Round</th>
+                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Round</th>
                     {activeGame.playerIds.map((pid, i) => (
-                      <th key={pid} style={{ textAlign: "center", padding: "6px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, minWidth: 78, position: "sticky", top: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `0 1px 0 rgba(242,239,230,0.15)` }}>
+                      <th key={pid} style={{ textAlign: "center", padding: "6px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, minWidth: 78, background: PALETTE.rail }}>
                         {getPlayerName(pid)}
                       </th>
                     ))}
-                    <th style={{ width: 30, position: "sticky", top: 0, background: PALETTE.rail, zIndex: 2 }}></th>
+                    <th style={{ width: 30, background: PALETTE.rail }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -925,15 +865,11 @@ export default function MexicanTrainFamilyApp() {
                             <td key={pIdx} style={{ padding: "4px", position: "relative" }}>
                               {tagColor && <div style={{ position: "absolute", top: "50%", right: 10, transform: "translateY(-50%)", fontSize: 9, fontWeight: 700, color: tagColor, zIndex: 1, pointerEvents: "none" }}>{tagLabel}</div>}
                               <input
-                                ref={(el) => { inputRefs.current[`${rIdx}-${pIdx}`] = el; }}
                                 type="number"
                                 inputMode="numeric"
-                                enterKeyHint="next"
                                 value={score === 0 ? 0 : score}
                                 onChange={(e) => updateScore(rIdx, pIdx, e.target.value)}
-                                onFocus={(e) => { e.target.select(); setFocusedCell({ r: rIdx, p: pIdx }); }}
-                                onBlur={handleScoreCellBlur}
-                                onKeyDown={(e) => handleCellKeyDown(e, rIdx, pIdx)}
+                                onFocus={(e) => e.target.select()}
                                 style={{ width: "100%", boxSizing: "border-box", background: tagColor ? `${tagColor}22` : "rgba(242,239,230,0.06)", border: tagColor ? `2px solid ${tagColor}` : `1px solid rgba(242,239,230,0.15)`, borderRadius: 6, padding: "8px 6px", color: PALETTE.cream, fontSize: 14, textAlign: "center", outline: "none" }}
                               />
                             </td>
@@ -948,7 +884,7 @@ export default function MexicanTrainFamilyApp() {
                     );
                   })}
                   <tr>
-                    <td style={{ padding: "8px 4px", fontSize: 11, color: PALETTE.slate, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15)`, borderTop: `1px solid rgba(242,239,230,0.15)` }} />
+                    <td style={{ padding: "8px 4px", fontSize: 11, color: PALETTE.slate, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15), 0 -1px 0 rgba(242,239,230,0.15)` }} />
                     {activeGame.playerIds.map((pid) => (
                       <td key={pid} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, borderTop: `1px solid rgba(242,239,230,0.15)` }}>
                         {getPlayerName(pid)}
@@ -967,34 +903,10 @@ export default function MexicanTrainFamilyApp() {
               </table>
             </div>
           )}
+          <button onClick={addRound} style={{ width: "100%", marginTop: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, ...btnPrimary }}>
+            <Plus size={18} /> Add round
+          </button>
         </div>
-
-        {focusedCell && activeGame.rounds.length > 0 ? (
-          <div style={{ position: "sticky", bottom: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)` }}>
-            <div style={{ maxWidth: 480, margin: "0 auto", display: "flex", gap: 10 }}>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => goToPrevCell(focusedCell.r, focusedCell.p)}
-                style={{ ...btnSecondary, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              >
-                <ChevronLeft size={16} /> Prev
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => goToNextCell(focusedCell.r, focusedCell.p)}
-                style={{ ...btnPrimary, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              >
-                Next <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: `linear-gradient(0deg, ${PALETTE.railDeep} 60%, transparent)` }}>
-            <button onClick={addRound} style={{ width: "100%", maxWidth: 480, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, ...btnPrimary }}>
-              <Plus size={18} /> Add round
-            </button>
-          </div>
-        )}
 
         {/* Menu dropdown */}
         {sheetOpen && (
