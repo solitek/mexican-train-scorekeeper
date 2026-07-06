@@ -167,9 +167,29 @@ export default function MexicanTrainFamilyApp() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
   const [focusedCell, setFocusedCell] = useState(null); // {r, p} | null — drives the score-entry nav toolbar
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   const saveTimers = useRef({});
   const inputRefs = useRef({});
+
+  // iOS Safari doesn't shrink the layout viewport when the keyboard opens, so
+  // `position: fixed; bottom: 0` ends up hidden behind the keyboard. Track the
+  // visual viewport to offset fixed bottom bars above it instead.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    function updateInset() {
+      const inset = window.innerHeight - vv.height - vv.offsetTop;
+      setKeyboardInset(Math.max(0, Math.round(inset)));
+    }
+    updateInset();
+    vv.addEventListener("resize", updateInset);
+    vv.addEventListener("scroll", updateInset);
+    return () => {
+      vv.removeEventListener("resize", updateInset);
+      vv.removeEventListener("scroll", updateInset);
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -846,7 +866,7 @@ export default function MexicanTrainFamilyApp() {
         </div>
 
         {focusedCell ? (
-          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)`, display: "flex", gap: 10 }}>
+          <div style={{ position: "fixed", bottom: keyboardInset, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)`, display: "flex", gap: 10 }}>
             <button
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => goToPrevCell(focusedCell.r, focusedCell.p)}
