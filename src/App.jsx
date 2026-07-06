@@ -926,7 +926,7 @@ export default function MexicanTrainFamilyApp() {
               No rounds yet. Add a round after each hand and enter each player's leftover pip count.
             </div>
           ) : (
-            <div ref={scoreScrollRef} style={{ overflow: "auto", maxHeight: "min(52vh, 460px)", border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
+            <div ref={scoreScrollRef} style={{ overflow: "auto", maxHeight: 620, border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
                 <thead>
                   <tr>
