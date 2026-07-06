@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreVertical,
-  Wine, Users, UserPlus, Archive, ArchiveRestore, Pencil, Skull
+  Wine, Users, UserPlus, Home, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
@@ -174,6 +174,7 @@ export default function MexicanTrainFamilyApp() {
 
   const saveTimers = useRef({});
   const inputRefs = useRef({});
+  const scoreScrollRef = useRef(null);
 
   // iOS Safari doesn't shrink the layout viewport when the keyboard opens, so
   // `position: fixed; bottom: 0` ends up hidden behind the keyboard. Track the
@@ -305,6 +306,7 @@ export default function MexicanTrainFamilyApp() {
       finishedAt: null,
     };
     setActiveGame(g);
+    setFocusedCell(null);
     setView("game");
   }
   function addRound() {
@@ -335,6 +337,7 @@ export default function MexicanTrainFamilyApp() {
     setRecapGameId(finished.id);
     setActiveGame(null);
     setConfirmAction(null);
+    setFocusedCell(null);
     setView("recap");
     supabase.from("games").upsert(gameToRow(finished, "finished")).then(({ error }) => { if (error) console.error(error); });
   }
@@ -343,6 +346,7 @@ export default function MexicanTrainFamilyApp() {
     const idToDelete = activeGame?.id;
     setActiveGame(null);
     setConfirmAction(null);
+    setFocusedCell(null);
     setView("home");
     if (idToDelete) supabase.from("games").delete().eq("id", idToDelete).then(({ error }) => { if (error) console.error(error); });
   }
@@ -350,18 +354,33 @@ export default function MexicanTrainFamilyApp() {
   // ---------- Score cell keyboard nav ----------
   function focusCell(r, p) {
     const ref = inputRefs.current[`${r}-${p}`];
-    if (ref) { ref.focus(); ref.select(); }
+    if (!ref) return;
+    ref.focus();
+    ref.select();
+    // Compensate for the sticky "Round" column: the browser's default
+    // scroll-into-view has no idea that column visually covers part of the
+    // scrollport, so it can leave a just-focused cell half-hidden behind it.
+    const scroller = scoreScrollRef.current;
+    const stickyCol = scroller?.querySelector("thead th");
+    if (scroller && stickyCol) {
+      const stickyWidth = stickyCol.getBoundingClientRect().width;
+      const cellRect = ref.getBoundingClientRect();
+      const scrollerRect = scroller.getBoundingClientRect();
+      const visibleLeft = scrollerRect.left + stickyWidth;
+      if (cellRect.left < visibleLeft) {
+        scroller.scrollLeft -= visibleLeft - cellRect.left;
+      } else if (cellRect.right > scrollerRect.right) {
+        scroller.scrollLeft += cellRect.right - scrollerRect.right;
+      }
+    }
   }
   function goToNextCell(r, p) {
     const nPlayers = activeGame.playerIds.length;
-    if (p + 1 < nPlayers) focusCell(r, p + 1);
-    else if (r + 1 < activeGame.rounds.length) focusCell(r + 1, 0);
-    else { addRound(); setTimeout(() => focusCell(r + 1, 0), 0); }
+    focusCell(r, (p + 1) % nPlayers);
   }
   function goToPrevCell(r, p) {
     const nPlayers = activeGame.playerIds.length;
-    if (p - 1 >= 0) focusCell(r, p - 1);
-    else if (r - 1 >= 0) focusCell(r - 1, nPlayers - 1);
+    focusCell(r, (p - 1 + nPlayers) % nPlayers);
   }
   function handleCellKeyDown(e, r, p) {
     if (e.key === "Enter" || e.key === "ArrowRight") {
@@ -899,7 +918,7 @@ export default function MexicanTrainFamilyApp() {
               No rounds yet. Add a round after each hand and enter each player's leftover pip count.
             </div>
           ) : (
-            <div style={{ overflow: "auto", maxHeight: "min(52vh, 460px)", border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
+            <div ref={scoreScrollRef} style={{ overflow: "auto", maxHeight: "min(52vh, 460px)", border: `1px solid rgba(242,239,230,0.08)`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
                 <thead>
                   <tr>
@@ -961,23 +980,24 @@ export default function MexicanTrainFamilyApp() {
           )}
         </div>
 
-        {focusedCell ? (
-          <div style={{ position: "fixed", bottom: keyboardInset, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)`, display: "flex", gap: 10 }}>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => goToPrevCell(focusedCell.r, focusedCell.p)}
-              disabled={focusedCell.r === 0 && focusedCell.p === 0}
-              style={{ ...btnSecondary, flex: 1, maxWidth: 220, margin: "0 auto 0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: focusedCell.r === 0 && focusedCell.p === 0 ? 0.4 : 1 }}
-            >
-              <ChevronLeft size={16} /> Prev
-            </button>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => goToNextCell(focusedCell.r, focusedCell.p)}
-              style={{ ...btnPrimary, flex: 1, maxWidth: 220, margin: "0 0 0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
-              Next <ChevronRight size={16} />
-            </button>
+        {focusedCell && activeGame.rounds.length > 0 ? (
+          <div style={{ position: "fixed", bottom: keyboardInset, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)` }}>
+            <div style={{ maxWidth: 480, margin: "0 auto", display: "flex", gap: 10 }}>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => goToPrevCell(focusedCell.r, focusedCell.p)}
+                style={{ ...btnSecondary, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                <ChevronLeft size={16} /> Prev
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => goToNextCell(focusedCell.r, focusedCell.p)}
+                style={{ ...btnPrimary, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              >
+                Next <ChevronRight size={16} />
+              </button>
+            </div>
           </div>
         ) : (
           <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: `linear-gradient(0deg, ${PALETTE.railDeep} 60%, transparent)` }}>
@@ -987,26 +1007,41 @@ export default function MexicanTrainFamilyApp() {
           </div>
         )}
 
-        {/* Bottom sheet */}
+        {/* Menu dropdown */}
         {sheetOpen && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 10, display: "flex", alignItems: "flex-end" }} onClick={() => setSheetOpen(false)}>
-            <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: PALETTE.rail, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: "20px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: "rgba(242,239,230,0.2)", margin: "0 auto 10px" }} />
-              <button
-                onClick={() => { setSheetOpen(false); setAddPlayerStep("pick"); setAddPlayerCandidateId(null); setAddPlayerNewName(""); setView("addPlayer"); }}
-                style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-              >
-                <UserPlus size={16} /> Add Player to Game
-              </button>
-              <button onClick={() => { setSheetOpen(false); setConfirmAction("finish"); }} style={{ ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <Check size={16} /> Finish Game
-              </button>
-              <button onClick={() => { setSheetOpen(false); setConfirmAction("abandon"); }} style={{ ...btnSecondary, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: PALETTE.red, borderColor: "rgba(179,82,79,0.4)" }}>
-                <Skull size={16} /> Abandon Game
-              </button>
-              <button onClick={() => setSheetOpen(false)} style={{ background: "none", border: "none", color: PALETTE.slate, padding: 10, fontSize: 14, cursor: "pointer" }}>
-                Cancel
-              </button>
+          <div style={{ position: "fixed", inset: 0, zIndex: 10 }} onClick={() => setSheetOpen(false)}>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ position: "absolute", top: 60, right: 20, minWidth: 230, background: PALETTE.rail, border: `1px solid rgba(242,239,230,0.15)`, borderRadius: 12, boxShadow: "0 12px 28px rgba(0,0,0,0.45)", overflow: "hidden" }}
+            >
+              {[
+                { label: "Home", icon: <Home size={17} />, onClick: () => { setSheetOpen(false); setView("home"); } },
+                { label: "Add Player to Game", icon: <UserPlus size={17} />, onClick: () => { setSheetOpen(false); setAddPlayerStep("pick"); setAddPlayerCandidateId(null); setAddPlayerNewName(""); setView("addPlayer"); } },
+                { label: "Abandon Game", icon: <Skull size={17} />, onClick: () => { setSheetOpen(false); setConfirmAction("abandon"); }, color: PALETTE.red },
+                { label: "Finish Game", icon: <Check size={17} />, onClick: () => { setSheetOpen(false); setConfirmAction("finish"); }, color: PALETTE.brassLight },
+              ].map((item, i, arr) => (
+                <button
+                  key={item.label}
+                  onClick={item.onClick}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "16px 18px",
+                    background: "none",
+                    border: "none",
+                    borderBottom: i < arr.length - 1 ? `1px solid rgba(242,239,230,0.08)` : "none",
+                    color: item.color || PALETTE.cream,
+                    fontSize: 15,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {item.icon} {item.label}
+                </button>
+              ))}
             </div>
           </div>
         )}
