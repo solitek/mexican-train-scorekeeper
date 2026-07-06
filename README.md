@@ -3,6 +3,8 @@
 A shared, no-login scorekeeping app for Mexican Train dominoes — player roster,
 drinking mode, game history, and a family dashboard with charts.
 
+Built and maintained with Claude Code.
+
 ## 1. Create a Supabase project (free)
 
 1. Go to [supabase.com](https://supabase.com) and sign up.
