@@ -465,18 +465,16 @@ export default function MexicanTrainFamilyApp() {
 
           <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, marginTop: 8, textTransform: "uppercase", letterSpacing: 1 }}>Players</div>
           {stats.length === 0 && <div style={{ color: PALETTE.slate, fontSize: 14, marginBottom: 20 }}>No players yet.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 24 }}>
             {stats.map((s) => (
               <button
                 key={s.id}
                 onClick={() => { setSelectedPlayerId(s.id); setView("player"); }}
                 style={{ textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
-                  <div style={{ fontSize: 12, color: PALETTE.slate }}>{s.gamesPlayed} games</div>
-                </div>
-                <div style={{ display: "flex", gap: 14, marginTop: 6, fontSize: 12, color: PALETTE.slate, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
+                <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 2 }}>{s.gamesPlayed} games</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6, fontSize: 12, color: PALETTE.slate }}>
                   <span><b style={{ color: PALETTE.brassLight }}>{s.gameWins}</b> wins</span>
                   <span><b style={{ color: PALETTE.red }}>{s.gameLosses}</b> losses</span>
                   <span><b style={{ color: PALETTE.cream }}>{s.roundWins}</b> round wins</span>
