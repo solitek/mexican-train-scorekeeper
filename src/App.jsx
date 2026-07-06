@@ -4,7 +4,7 @@ import {
   LineChart, Line,
 } from "recharts";
 import {
-  Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronUp, ChevronDown, MoreVertical,
+  Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, MoreVertical,
   Wine, Users, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
@@ -166,6 +166,7 @@ export default function MexicanTrainFamilyApp() {
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
+  const [focusedCell, setFocusedCell] = useState(null); // {r, p} | null — drives the score-entry nav toolbar
 
   const saveTimers = useRef({});
   const inputRefs = useRef({});
@@ -328,17 +329,24 @@ export default function MexicanTrainFamilyApp() {
     const ref = inputRefs.current[`${r}-${p}`];
     if (ref) { ref.focus(); ref.select(); }
   }
-  function handleCellKeyDown(e, r, p) {
+  function goToNextCell(r, p) {
     const nPlayers = activeGame.playerIds.length;
+    if (p + 1 < nPlayers) focusCell(r, p + 1);
+    else if (r + 1 < activeGame.rounds.length) focusCell(r + 1, 0);
+    else { addRound(); setTimeout(() => focusCell(r + 1, 0), 0); }
+  }
+  function goToPrevCell(r, p) {
+    const nPlayers = activeGame.playerIds.length;
+    if (p - 1 >= 0) focusCell(r, p - 1);
+    else if (r - 1 >= 0) focusCell(r - 1, nPlayers - 1);
+  }
+  function handleCellKeyDown(e, r, p) {
     if (e.key === "Enter" || e.key === "ArrowRight") {
       e.preventDefault();
-      if (p + 1 < nPlayers) focusCell(r, p + 1);
-      else if (r + 1 < activeGame.rounds.length) focusCell(r + 1, 0);
-      else { addRound(); setTimeout(() => focusCell(r + 1, 0), 0); }
+      goToNextCell(r, p);
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      if (p - 1 >= 0) focusCell(r, p - 1);
-      else if (r - 1 >= 0) focusCell(r - 1, nPlayers - 1);
+      goToPrevCell(r, p);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       if (r + 1 < activeGame.rounds.length) focusCell(r + 1, p);
@@ -346,6 +354,13 @@ export default function MexicanTrainFamilyApp() {
       e.preventDefault();
       if (r - 1 >= 0) focusCell(r - 1, p);
     }
+  }
+  function handleScoreCellBlur() {
+    setTimeout(() => {
+      const active = document.activeElement;
+      const stillOnScoreCell = Object.values(inputRefs.current).includes(active);
+      if (!stillOnScoreCell) setFocusedCell(null);
+    }, 0);
   }
 
   // ---------- Dashboard aggregation ----------
@@ -555,7 +570,7 @@ export default function MexicanTrainFamilyApp() {
                   key={p.id}
                   onClick={() => setPickSelection((prev) => selected ? prev.filter((id) => id !== p.id) : [...prev, p.id])}
                   style={{
-                    padding: "10px 16px",
+                    padding: "10px 26px 10px 8px",
                     borderRadius: 999,
                     border: `1px solid ${selected ? PALETTE.brass : "rgba(242,239,230,0.25)"}`,
                     background: selected ? "rgba(192,138,62,0.2)" : "rgba(242,239,230,0.05)",
@@ -567,7 +582,8 @@ export default function MexicanTrainFamilyApp() {
                     gap: 6,
                   }}
                 >
-                  {selected && <Check size={13} />} {p.name}
+                  <Check size={13} style={{ visibility: selected ? "visible" : "hidden", flexShrink: 0 }} />
+                  <span>{p.name}</span>
                 </button>
               );
             })}
@@ -800,7 +816,8 @@ export default function MexicanTrainFamilyApp() {
                                 enterKeyHint="next"
                                 value={score === 0 ? 0 : score}
                                 onChange={(e) => updateScore(rIdx, pIdx, e.target.value)}
-                                onFocus={(e) => e.target.select()}
+                                onFocus={(e) => { e.target.select(); setFocusedCell({ r: rIdx, p: pIdx }); }}
+                                onBlur={handleScoreCellBlur}
                                 onKeyDown={(e) => handleCellKeyDown(e, rIdx, pIdx)}
                                 style={{ width: "100%", boxSizing: "border-box", background: tagColor ? `${tagColor}22` : "rgba(242,239,230,0.06)", border: tagColor ? `2px solid ${tagColor}` : `1px solid rgba(242,239,230,0.15)`, borderRadius: 6, padding: "8px 6px", color: PALETTE.cream, fontSize: 14, textAlign: "center", outline: "none" }}
                               />
@@ -828,11 +845,31 @@ export default function MexicanTrainFamilyApp() {
           )}
         </div>
 
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: `linear-gradient(0deg, ${PALETTE.railDeep} 60%, transparent)` }}>
-          <button onClick={addRound} style={{ width: "100%", maxWidth: 480, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, ...btnPrimary }}>
-            <Plus size={18} /> Add round
-          </button>
-        </div>
+        {focusedCell ? (
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)`, display: "flex", gap: 10 }}>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => goToPrevCell(focusedCell.r, focusedCell.p)}
+              disabled={focusedCell.r === 0 && focusedCell.p === 0}
+              style={{ ...btnSecondary, flex: 1, maxWidth: 220, margin: "0 auto 0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: focusedCell.r === 0 && focusedCell.p === 0 ? 0.4 : 1 }}
+            >
+              <ChevronLeft size={16} /> Prev
+            </button>
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => goToNextCell(focusedCell.r, focusedCell.p)}
+              style={{ ...btnPrimary, flex: 1, maxWidth: 220, margin: "0 0 0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+            >
+              Next <ChevronRight size={16} />
+            </button>
+          </div>
+        ) : (
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "16px 20px", background: `linear-gradient(0deg, ${PALETTE.railDeep} 60%, transparent)` }}>
+            <button onClick={addRound} style={{ width: "100%", maxWidth: 480, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, ...btnPrimary }}>
+              <Plus size={18} /> Add round
+            </button>
+          </div>
+        )}
 
         {/* Bottom sheet */}
         {sheetOpen && (
