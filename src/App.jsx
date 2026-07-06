@@ -4,7 +4,7 @@ import {
   LineChart, Line,
 } from "recharts";
 import {
-  Plus, Trash2, Trophy, X, Check, ChevronLeft, MoreVertical,
+  Plus, Trash2, Trophy, X, Check, ChevronLeft, ChevronUp, ChevronDown, MoreVertical,
   Wine, Users, Archive, ArchiveRestore, Pencil, Skull
 } from "lucide-react";
 import { supabase } from "./supabaseClient";
@@ -211,6 +211,18 @@ export default function MexicanTrainFamilyApp() {
   }
   useEffect(() => { if (loaded && activeGame) debouncedSaveActiveGame(activeGame); }, [activeGame, loaded]);
 
+  // Debounced persistence of reordered players — rapid up/down taps would
+  // otherwise fire overlapping write batches that can land out of order and
+  // corrupt the saved order; only the final settled order gets written.
+  function debouncedSavePlayerOrder(orderedActive) {
+    if (saveTimers.current.playerOrder) clearTimeout(saveTimers.current.playerOrder);
+    saveTimers.current.playerOrder = setTimeout(() => {
+      orderedActive.forEach((p) => {
+        supabase.from("players").update({ created_at: p.createdAt }).eq("id", p.id).then(({ error }) => { if (error) console.error(error); });
+      });
+    }, 400);
+  }
+
   function getPlayerName(id) {
     const p = players.find((pl) => pl.id === id);
     return p ? p.name : "Unknown";
@@ -240,6 +252,20 @@ export default function MexicanTrainFamilyApp() {
     if (!trimmed) return;
     setPlayers((prev) => prev.map((p) => (p.id === id ? { ...p, name: trimmed } : p)));
     supabase.from("players").update({ name: trimmed }).eq("id", id).then(({ error }) => { if (error) console.error(error); });
+  }
+  function movePlayer(id, direction) {
+    setPlayers((prev) => {
+      const activeList = prev.filter((p) => !p.archived);
+      const archivedList = prev.filter((p) => p.archived);
+      const idx = activeList.findIndex((p) => p.id === id);
+      const swapIdx = idx + direction;
+      if (idx < 0 || swapIdx < 0 || swapIdx >= activeList.length) return prev;
+      [activeList[idx], activeList[swapIdx]] = [activeList[swapIdx], activeList[idx]];
+      const base = Date.now();
+      const reordered = activeList.map((p, i) => ({ ...p, createdAt: base + i }));
+      debouncedSavePlayerOrder(reordered);
+      return [...reordered, ...archivedList];
+    });
   }
 
   // ---------- Game lifecycle ----------
@@ -600,8 +626,16 @@ export default function MexicanTrainFamilyApp() {
 
           <div style={{ fontSize: 12, color: PALETTE.slate, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>Active</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-            {active.map((p) => (
+            {active.map((p, i) => (
               <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(242,239,230,0.05)", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  <button onClick={() => movePlayer(p.id, -1)} disabled={i === 0} style={{ background: "none", border: "none", color: PALETTE.slate, cursor: i === 0 ? "default" : "pointer", opacity: i === 0 ? 0.3 : 1, padding: 2, display: "flex" }}>
+                    <ChevronUp size={14} />
+                  </button>
+                  <button onClick={() => movePlayer(p.id, 1)} disabled={i === active.length - 1} style={{ background: "none", border: "none", color: PALETTE.slate, cursor: i === active.length - 1 ? "default" : "pointer", opacity: i === active.length - 1 ? 0.3 : 1, padding: 2, display: "flex" }}>
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
                 {renamingId === p.id ? (
                   <input
                     value={renameValue}
@@ -873,6 +907,12 @@ export default function MexicanTrainFamilyApp() {
           <Row label="Least rounds won" value={`${names(gs.leastRoundsWonIdx)} (${gs.minRoundWins})`} />
           <Row label="Most drinks" value={`${names(gs.mostDrinksIdx)} (${gs.maxDrinks})`} color={PALETTE.red} />
           <Row label="Least drinks" value={`${names(gs.leastDrinksIdx)} (${gs.minDrinks})`} color={PALETTE.green} />
+
+          <div style={{ fontSize: 12, color: PALETTE.slate, textAlign: "center", marginTop: 14 }}>
+            {game.drinkingMode
+              ? "Drinking mode was on — drinks were tracked for this game."
+              : "Drinking mode was off — drinks were not tracked for this game."}
+          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 24 }}>
             <button onClick={() => setView("home")} style={{ ...btnPrimary }}>Back to Home</button>
