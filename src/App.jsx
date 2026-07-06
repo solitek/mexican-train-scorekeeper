@@ -167,7 +167,6 @@ export default function MexicanTrainFamilyApp() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null); // 'finish' | 'abandon' | null
   const [focusedCell, setFocusedCell] = useState(null); // {r, p} | null — drives the score-entry nav toolbar
-  const [keyboardInset, setKeyboardInset] = useState(0);
   const [addPlayerStep, setAddPlayerStep] = useState("pick"); // 'pick' | 'confirm'
   const [addPlayerCandidateId, setAddPlayerCandidateId] = useState(null);
   const [addPlayerNewName, setAddPlayerNewName] = useState("");
@@ -175,33 +174,6 @@ export default function MexicanTrainFamilyApp() {
   const saveTimers = useRef({});
   const inputRefs = useRef({});
   const scoreScrollRef = useRef(null);
-
-  // iOS Safari doesn't shrink the layout viewport when the keyboard opens, so
-  // `position: fixed; bottom: 0` ends up hidden behind the keyboard. Track the
-  // visual viewport to offset fixed bottom bars above it instead.
-  //
-  // Comparing against window.innerHeight (and visualViewport.offsetTop) is
-  // unreliable once iOS's focus-triggered auto-scroll kicks in — offsetTop and
-  // innerHeight don't line up the way you'd expect, which overshoots the inset
-  // and leaves the toolbar floating over the middle of the page instead of
-  // right above the keyboard. Comparing against the viewport's own height
-  // right before the keyboard opened avoids that entirely.
-  const isEditingCell = !!focusedCell;
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv || !isEditingCell) { setKeyboardInset(0); return; }
-    const baselineHeight = vv.height;
-    function updateInset() {
-      setKeyboardInset(Math.max(0, Math.round(baselineHeight - vv.height)));
-    }
-    updateInset();
-    vv.addEventListener("resize", updateInset);
-    vv.addEventListener("scroll", updateInset);
-    return () => {
-      vv.removeEventListener("resize", updateInset);
-      vv.removeEventListener("scroll", updateInset);
-    };
-  }, [isEditingCell]);
 
   useEffect(() => {
     (async () => {
@@ -976,6 +948,15 @@ export default function MexicanTrainFamilyApp() {
                     );
                   })}
                   <tr>
+                    <td style={{ padding: "8px 4px", fontSize: 11, color: PALETTE.slate, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15)`, borderTop: `1px solid rgba(242,239,230,0.15)` }} />
+                    {activeGame.playerIds.map((pid) => (
+                      <td key={pid} style={{ textAlign: "center", padding: "8px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, borderTop: `1px solid rgba(242,239,230,0.15)` }}>
+                        {getPlayerName(pid)}
+                      </td>
+                    ))}
+                    <td style={{ borderTop: `1px solid rgba(242,239,230,0.15)` }} />
+                  </tr>
+                  <tr>
                     <td style={{ padding: "10px 4px", fontSize: 13, color: PALETTE.brassLight, fontWeight: 700, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 1, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Total</td>
                     {totals.map((t, i) => (
                       <td key={i} style={{ textAlign: "center", fontSize: 15, fontWeight: 700, color: t === minTotal ? PALETTE.brassLight : PALETTE.cream, borderTop: `1px solid rgba(242,239,230,0.15)`, paddingTop: 10 }}>{t}</td>
@@ -989,7 +970,7 @@ export default function MexicanTrainFamilyApp() {
         </div>
 
         {focusedCell && activeGame.rounds.length > 0 ? (
-          <div style={{ position: "fixed", bottom: keyboardInset, left: 0, right: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)` }}>
+          <div style={{ position: "sticky", bottom: 0, padding: "12px 20px", background: PALETTE.railDeep, borderTop: `1px solid rgba(242,239,230,0.12)` }}>
             <div style={{ maxWidth: 480, margin: "0 auto", display: "flex", gap: 10 }}>
               <button
                 onMouseDown={(e) => e.preventDefault()}
