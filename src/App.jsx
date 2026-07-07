@@ -43,9 +43,12 @@ const PALETTE = {
   cream: "#F2EFE6",
   brass: "#C08A3E",
   brassLight: "#D9A94F",
-  slate: "#5C7089",
-  red: "#B3524F",
-  green: "#4C8F6E",
+  slate: "#7E91A9",
+  red: "#C57C79",
+  green: "#549E79",
+  blue: "#6395B9",
+  purple: "#9D86B6",
+  purpleLight: "#B79FC7",
 };
 
 function uid() {
@@ -385,6 +388,13 @@ export default function MexicanTrainFamilyApp() {
     const trend = monthlyGameCounts(games);
     const historyList = [...games].sort((a, b) => b.finishedAt - a.finishedAt);
 
+    const maxWins = played.length ? Math.max(...played.map((s) => s.gameWins)) : 0;
+    const maxLosses = played.length ? Math.max(...played.map((s) => s.gameLosses)) : 0;
+    const maxDrinks = played.length ? Math.max(...played.map((s) => s.totalDrinks)) : 0;
+    const bigWinnerIds = new Set(maxWins > 0 ? played.filter((s) => s.gameWins === maxWins).map((s) => s.id) : []);
+    const bigLoserIds = new Set(maxLosses > 0 ? played.filter((s) => s.gameLosses === maxLosses).map((s) => s.id) : []);
+    const bigDrinkerIds = new Set(maxDrinks > 0 ? played.filter((s) => s.totalDrinks === maxDrinks).map((s) => s.id) : []);
+
     const cardStyle = { background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 12, padding: "16px 12px 8px", marginBottom: 18 };
     const cardTitleStyle = { fontSize: 13, fontWeight: 600, color: PALETTE.cream, marginBottom: 10, paddingLeft: 8 };
     const axisStyle = { fontSize: 11, fill: PALETTE.slate };
@@ -448,17 +458,17 @@ export default function MexicanTrainFamilyApp() {
 
               <div style={cardStyle}>
                 <div style={cardTitleStyle}>Game wins by player</div>
-                <HBarChart data={winsData} color={PALETTE.brassLight} />
+                <HBarChart data={winsData} color={PALETTE.green} />
               </div>
 
               <div style={cardStyle}>
                 <div style={cardTitleStyle}>Win rate %</div>
-                <HBarChart data={rateData} color={PALETTE.green} />
+                <HBarChart data={rateData} color={PALETTE.blue} />
               </div>
 
               <div style={cardStyle}>
                 <div style={cardTitleStyle}>Total drinks by player</div>
-                <HBarChart data={drinksData} color={PALETTE.red} />
+                <HBarChart data={drinksData} color={PALETTE.purple} />
               </div>
             </>
           )}
@@ -470,15 +480,36 @@ export default function MexicanTrainFamilyApp() {
               <button
                 key={s.id}
                 onClick={() => { setSelectedPlayerId(s.id); setView("player"); }}
-                style={{ textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
+                style={{ position: "relative", textAlign: "left", background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.12)`, borderRadius: 10, padding: "12px 14px", cursor: "pointer", color: PALETTE.cream }}
               >
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
-                <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 2 }}>{s.gamesPlayed} games</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6, fontSize: 12, color: PALETTE.slate }}>
-                  <span><b style={{ color: PALETTE.brassLight }}>{s.gameWins}</b> wins</span>
-                  <span><b style={{ color: PALETTE.red }}>{s.gameLosses}</b> losses</span>
-                  <span><b style={{ color: PALETTE.cream }}>{s.roundWins}</b> round wins</span>
-                  <span><b style={{ color: PALETTE.red }}>{s.totalDrinks}</b> drinks</span>
+                {(bigWinnerIds.has(s.id) || bigLoserIds.has(s.id) || bigDrinkerIds.has(s.id)) && (
+                  <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 2 }}>
+                    {bigWinnerIds.has(s.id) && <img src="/badge-winner.png" alt="Big Winner" width={40} height={40} style={{ display: "block" }} />}
+                    {bigLoserIds.has(s.id) && <img src="/badge-loser.png" alt="Big Loser" width={40} height={40} style={{ display: "block" }} />}
+                    {bigDrinkerIds.has(s.id) && <img src="/badge-drinker.png" alt="Big Drinker" width={40} height={40} style={{ display: "block" }} />}
+                  </div>
+                )}
+                <div style={{ paddingRight: 46 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{s.name} {s.archived && <span style={{ fontSize: 11, color: PALETTE.slate }}>(archived)</span>}</div>
+                  <div style={{ fontSize: 12, color: PALETTE.slate, marginTop: 2 }}>{s.gamesPlayed} games</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: PALETTE.green, lineHeight: 1.15 }}>{s.gameWins}</div>
+                    <div style={{ fontSize: 10, color: PALETTE.slate }}>wins</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: PALETTE.red, lineHeight: 1.15 }}>{s.gameLosses}</div>
+                    <div style={{ fontSize: 10, color: PALETTE.slate }}>losses</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: PALETTE.cream, lineHeight: 1.15 }}>{s.roundWins}</div>
+                    <div style={{ fontSize: 10, color: PALETTE.slate }}>round wins</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: PALETTE.purple, lineHeight: 1.15 }}>{s.totalDrinks}</div>
+                    <div style={{ fontSize: 10, color: PALETTE.slate }}>drinks</div>
+                  </div>
                 </div>
               </button>
             ))}
@@ -814,12 +845,12 @@ export default function MexicanTrainFamilyApp() {
                         <span style={{ fontSize: 10, color: PALETTE.slate }}>—</span>
                       ) : drinkCounts[p.i] <= 12 ? (
                         Array.from({ length: drinkCounts[p.i] }).map((_, d) => (
-                          <span key={d} style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.red, display: "inline-block" }} />
+                          <span key={d} style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.purple, display: "inline-block" }} />
                         ))
                       ) : (
                         <>
-                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.red, display: "inline-block" }} />
-                          <span style={{ fontSize: 10, color: PALETTE.red, fontWeight: 700 }}>&times;{drinkCounts[p.i]}</span>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: PALETTE.purple, display: "inline-block" }} />
+                          <span style={{ fontSize: 10, color: PALETTE.purple, fontWeight: 700 }}>&times;{drinkCounts[p.i]}</span>
                         </>
                       )}
                     </div>
@@ -959,7 +990,7 @@ export default function MexicanTrainFamilyApp() {
                 <button onClick={() => setConfirmAction(null)} style={{ ...btnSecondary, flex: 1 }}>Cancel</button>
                 <button
                   onClick={() => (confirmAction === "finish" ? finishGame() : abandonGame())}
-                  style={{ ...btnPrimary, flex: 1, background: confirmAction === "abandon" ? PALETTE.red : PALETTE.brass, color: confirmAction === "abandon" ? PALETTE.cream : PALETTE.railDeep }}
+                  style={{ ...btnPrimary, flex: 1, background: confirmAction === "abandon" ? PALETTE.red : PALETTE.brass, color: PALETTE.railDeep }}
                 >
                   {confirmAction === "finish" ? "Finish" : "Abandon"}
                 </button>
@@ -998,8 +1029,8 @@ export default function MexicanTrainFamilyApp() {
           <Row label="Last place" value={names(gs.loserIdx)} color={PALETTE.red} />
           <Row label="Most rounds won" value={`${names(gs.mostRoundsWonIdx)} (${gs.maxRoundWins})`} />
           <Row label="Least rounds won" value={`${names(gs.leastRoundsWonIdx)} (${gs.minRoundWins})`} />
-          <Row label="Most drinks" value={`${names(gs.mostDrinksIdx)} (${gs.maxDrinks})`} color={PALETTE.red} />
-          <Row label="Least drinks" value={`${names(gs.leastDrinksIdx)} (${gs.minDrinks})`} color={PALETTE.green} />
+          <Row label="Most drinks" value={`${names(gs.mostDrinksIdx)} (${gs.maxDrinks})`} color={PALETTE.purple} />
+          <Row label="Least drinks" value={`${names(gs.leastDrinksIdx)} (${gs.minDrinks})`} color={PALETTE.purpleLight} />
 
           <div style={{ fontSize: 12, color: PALETTE.slate, textAlign: "center", marginTop: 14 }}>
             {game.drinkingMode
@@ -1017,11 +1048,22 @@ export default function MexicanTrainFamilyApp() {
 
   // ---------- PLAYER DETAIL ----------
   if (view === "player") {
-    const stats = computeDashboard().find((s) => s.id === selectedPlayerId);
+    const allStats = computeDashboard();
+    const stats = allStats.find((s) => s.id === selectedPlayerId);
     if (!stats) { setView("home"); return null; }
     const recent = games.filter((g) => g.playerIds.includes(selectedPlayerId)).sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 10);
     const winRate = stats.gamesPlayed ? Math.round((stats.gameWins / stats.gamesPlayed) * 100) : 0;
     const drinksPerGame = stats.drinkingGamesPlayed ? (stats.totalDrinks / stats.drinkingGamesPlayed).toFixed(1) : "0.0";
+
+    const played = allStats.filter((s) => s.gamesPlayed > 0);
+    const maxWins = played.length ? Math.max(...played.map((s) => s.gameWins)) : 0;
+    const maxLosses = played.length ? Math.max(...played.map((s) => s.gameLosses)) : 0;
+    const maxDrinks = played.length ? Math.max(...played.map((s) => s.totalDrinks)) : 0;
+    const badges = [
+      maxWins > 0 && stats.gameWins === maxWins ? { src: "/badge-winner.png", alt: "Big Winner" } : null,
+      maxLosses > 0 && stats.gameLosses === maxLosses ? { src: "/badge-loser.png", alt: "Big Loser" } : null,
+      maxDrinks > 0 && stats.totalDrinks === maxDrinks ? { src: "/badge-drinker.png", alt: "Big Drinker" } : null,
+    ].filter(Boolean);
 
     const Stat = ({ label, value }) => (
       <div style={{ background: "rgba(242,239,230,0.05)", border: `1px solid rgba(242,239,230,0.1)`, borderRadius: 10, padding: "12px", flex: "1 1 44%" }}>
@@ -1034,6 +1076,13 @@ export default function MexicanTrainFamilyApp() {
       <div style={pageStyle}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <BackHeader title={stats.name} onBack={() => setView("home")} />
+          {badges.length > 0 && (
+            <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+              {badges.map((b) => (
+                <img key={b.src} src={b.src} alt={b.alt} width={100} height={100} style={{ display: "block" }} />
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
             <Stat label="Games played" value={stats.gamesPlayed} />
             <Stat label="Game wins" value={`${stats.gameWins} (${winRate}%)`} />
