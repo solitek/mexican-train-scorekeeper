@@ -153,6 +153,10 @@ const btnSecondary = {
 export default function MexicanTrainFamilyApp() {
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState("home"); // home (incl. dashboard) | pick | manage | game | recap | player
+
+  // Switching views is just a re-render, not a real page navigation, so the
+  // browser has no reason to reset scroll on its own — do it explicitly.
+  useEffect(() => { window.scrollTo(0, 0); }, [view]);
   const [players, setPlayers] = useState([]); // {id,name,archived,createdAt}
   const [games, setGames] = useState([]); // finished games
   const [activeGame, setActiveGame] = useState(null); // in-progress game
