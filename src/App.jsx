@@ -355,7 +355,7 @@ export default function MexicanTrainFamilyApp() {
     background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`,
     fontFamily: "'Helvetica Neue', Arial, sans-serif",
     color: PALETTE.cream,
-    padding: "24px 20px 40px",
+    padding: "calc(24px + env(safe-area-inset-top)) 20px 40px",
   };
 
   function BackHeader({ title, onBack, right }) {
@@ -759,7 +759,7 @@ export default function MexicanTrainFamilyApp() {
     return (
       <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`, fontFamily: "'Helvetica Neue', Arial, sans-serif", color: PALETTE.cream, paddingBottom: 24 }}>
         {/* Compact header */}
-        <div style={{ padding: "20px 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
+        <div style={{ padding: "calc(20px + env(safe-area-inset-top)) 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
             <img src="/icon.png" alt="" width={30} height={30} style={{ borderRadius: 7, display: "block", flexShrink: 0 }} />
             {editingTitle ? (
