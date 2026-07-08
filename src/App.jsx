@@ -153,6 +153,7 @@ const btnSecondary = {
 export default function MexicanTrainFamilyApp() {
   const [loaded, setLoaded] = useState(false);
   const [trainRunning, setTrainRunning] = useState(false);
+  const [badgeSpins, setBadgeSpins] = useState({}); // badge src -> tap count, used to retrigger the spin animation
   const [view, setView] = useState("home"); // home (incl. dashboard) | pick | manage | game | recap | player
 
   // Switching views is just a re-render, not a real page navigation, so the
@@ -1127,9 +1128,34 @@ export default function MexicanTrainFamilyApp() {
           <BackHeader title={stats.name} onBack={() => setView("home")} />
           {badges.length > 0 && (
             <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
-              {badges.map((b) => (
-                <img key={b.src} src={b.src} alt={b.alt} width={100} height={100} style={{ display: "block" }} />
-              ))}
+              <style>{`
+                @keyframes badgeSpin {
+                  0% { transform: rotateY(0deg) scale(1); }
+                  50% { transform: rotateY(180deg) scale(1.15); }
+                  100% { transform: rotateY(360deg) scale(1); }
+                }
+              `}</style>
+              {badges.map((b) => {
+                const spinCount = badgeSpins[b.src] || 0;
+                return (
+                  <div key={b.src} style={{ perspective: 600 }}>
+                    <img
+                      key={spinCount}
+                      src={b.src}
+                      alt={b.alt}
+                      width={100}
+                      height={100}
+                      style={{
+                        display: "block",
+                        cursor: "pointer",
+                        WebkitTapHighlightColor: "transparent",
+                        animation: spinCount > 0 ? "badgeSpin 0.6s ease" : "none",
+                      }}
+                      onClick={() => setBadgeSpins((prev) => ({ ...prev, [b.src]: (prev[b.src] || 0) + 1 }))}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
