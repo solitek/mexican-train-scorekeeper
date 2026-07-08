@@ -152,6 +152,7 @@ const btnSecondary = {
 
 export default function MexicanTrainFamilyApp() {
   const [loaded, setLoaded] = useState(false);
+  const [trainRunning, setTrainRunning] = useState(false);
   const [view, setView] = useState("home"); // home (incl. dashboard) | pick | manage | game | recap | player
 
   // Switching views is just a re-render, not a real page navigation, so the
@@ -379,6 +380,35 @@ export default function MexicanTrainFamilyApp() {
     );
   }
 
+  function TrainEasterEgg() {
+    if (!trainRunning) return null;
+    return (
+      <>
+        <style>{`
+          @keyframes trainDriveAcross {
+            from { transform: translateX(calc(100vw + 260px)); }
+            to { transform: translateX(-260px); }
+          }
+        `}</style>
+        <img
+          src="/easter-egg-train.png"
+          alt=""
+          width={200}
+          height={84}
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: 0,
+            zIndex: 9999,
+            pointerEvents: "none",
+            animation: "trainDriveAcross 4s linear forwards",
+          }}
+          onAnimationEnd={() => setTrainRunning(false)}
+        />
+      </>
+    );
+  }
+
   // ---------- HOME (+ DASHBOARD) ----------
   if (view === "home") {
     const allStats = computeDashboard();
@@ -422,12 +452,21 @@ export default function MexicanTrainFamilyApp() {
       <div style={pageStyle}>
         <div style={{ maxWidth: 480, margin: "0 auto" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 28 }}>
-            <img src="/icon.png" alt="" width={40} height={40} style={{ borderRadius: 10, display: "block" }} />
+            <img
+              src="/icon.png"
+              alt=""
+              width={40}
+              height={40}
+              style={{ borderRadius: 10, display: "block", cursor: "pointer" }}
+              onClick={() => setTrainRunning(true)}
+            />
             <div>
               <div style={{ fontSize: 11, letterSpacing: "3px", color: PALETTE.brassLight, textTransform: "uppercase" }}>All Aboard</div>
               <h1 style={{ fontSize: 28, margin: 0, fontWeight: 700 }}>Mexican Train</h1>
             </div>
           </div>
+
+          <TrainEasterEgg />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 28 }}>
             {activeGame && (
@@ -793,6 +832,7 @@ export default function MexicanTrainFamilyApp() {
 
     return (
       <div style={{ minHeight: "100vh", background: `linear-gradient(180deg, ${PALETTE.railDeep} 0%, ${PALETTE.rail} 100%)`, fontFamily: "'Helvetica Neue', Arial, sans-serif", color: PALETTE.cream, paddingBottom: 24 }}>
+        <TrainEasterEgg />
         {/* Compact header */}
         <div style={{ padding: "calc(20px + env(safe-area-inset-top)) 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid rgba(242,239,230,0.12)` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
@@ -875,7 +915,12 @@ export default function MexicanTrainFamilyApp() {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: activeGame.playerIds.length * 90 + 60 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `1px 0 0 rgba(242,239,230,0.15)` }}>Round</th>
+                    <th
+                      onClick={() => setTrainRunning(true)}
+                      style={{ textAlign: "left", padding: "6px 4px", fontSize: 11, color: PALETTE.slate, fontWeight: 500, position: "sticky", left: 0, background: PALETTE.rail, zIndex: 2, boxShadow: `1px 0 0 rgba(242,239,230,0.15)`, cursor: "pointer" }}
+                    >
+                      Round
+                    </th>
                     {activeGame.playerIds.map((pid, i) => (
                       <th key={pid} style={{ textAlign: "center", padding: "6px 4px", fontSize: 12, color: PALETTE.cream, fontWeight: 600, minWidth: 78, background: PALETTE.rail }}>
                         {getPlayerName(pid)}
